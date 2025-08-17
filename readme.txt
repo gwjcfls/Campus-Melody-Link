@@ -1,0 +1,1 @@
+SQLSTATE[42P08]: Ambiguous parameter: 7 ERROR: inconsistent types deduced for parameter $1 LINE 2: SET played = $1, ^ DETAIL: integer versus boolean
