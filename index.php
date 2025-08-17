@@ -7,6 +7,7 @@ ini_set('session.cookie_lifetime', 0); // 会话Cookie随浏览器关闭失效
 ini_set('session.gc_maxlifetime', 3600); // 会话有效期1小时（无操作自动失效）
 ini_set('session.regenerate_id', 'On'); // 每次请求刷新Session ID，防止固定攻击
 
+
 session_start();
 require_once 'db_connect.php';
 
