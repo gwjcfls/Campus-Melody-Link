@@ -1,11 +1,11 @@
 <?php
 // 会话安全配置（放在session_start()之前）
-// ini_set('session.cookie_secure', 'On');
-// ini_set('session.cookie_httponly', 'On');
-// ini_set('session.cookie_samesite', 'Strict');
-// ini_set('session.cookie_lifetime', 0);
-// ini_set('session.gc_maxlifetime', 3600);
-// ini_set('session.regenerate_id', 'On');
+ini_set('session.cookie_secure', 'On');
+ini_set('session.cookie_httponly', 'On');
+ini_set('session.cookie_samesite', 'Strict');
+ini_set('session.cookie_lifetime', 0);
+ini_set('session.gc_maxlifetime', 3600);
+ini_set('session.regenerate_id', 'On');
 session_start();
 require_once 'db_connect.php';
 
