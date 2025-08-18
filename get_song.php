@@ -13,41 +13,65 @@ require_once 'db_connect.php';
 // 检查是否已登录
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
     http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'message' => '未授权访问']);
     exit;
 }
 
-// 处理获取歌曲信息
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    try {
-        // 获取歌曲ID
-        $song_id = $_GET['id'];
-        
-        // 验证数据
-        if (empty($song_id)) {
-            throw new Exception("无效的歌曲ID");
-        }
-        
-        // 查询数据
-        $stmt = $pdo->prepare("SELECT * FROM song_requests WHERE id = :id");
-        $stmt->execute(['id' => $song_id]);
-        
-        // 获取结果
-        $song = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$song) {
-            throw new Exception("歌曲不存在");
-        }
-        
-        // 返回成功信息和歌曲数据
-        echo json_encode(['success' => true, 'song' => $song]);
-    } catch (Exception $e) {
-        // 返回错误信息
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-} else {
-    // 非法请求
+header('Content-Type: application/json; charset=utf-8');
+
+// 仅支持 GET
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => '方法不允许']);
+    exit;
+}
+
+try {
+    // 如果提供 id，则返回单条记录（保持向后兼容）
+    if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+        $song_id = (int)$_GET['id'];
+        $stmt = $pdo->prepare("SELECT * FROM song_requests WHERE id = :id");
+        $stmt->execute(['id' => $song_id]);
+        $song = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$song) {
+            echo json_encode(['success' => false, 'message' => '歌曲不存在']);
+        } else {
+            echo json_encode(['success' => true, 'song' => $song]);
+        }
+        exit;
+    }
+
+    // 列表查询：支持 q（模糊匹配）和 filter（all|pending|played）
+    $q = trim((string)($_GET['q'] ?? ''));
+    $filter = (string)($_GET['filter'] ?? 'all');
+
+    $conditions = [];
+    $params = [];
+
+    if ($q !== '') {
+        // 在多个字段上进行模糊匹配
+        $conditions[] = "(song_name LIKE :q OR artist LIKE :q OR requestor LIKE :q OR `class` LIKE :q)";
+        $params['q'] = "%{$q}%";
+    }
+
+    if ($filter === 'pending') {
+        $conditions[] = "played = 0";
+    } elseif ($filter === 'played') {
+        $conditions[] = "played = 1";
+    }
+
+    $where = $conditions ? ('WHERE ' . implode(' AND ', $conditions)) : '';
+    // 限制返回量以防一次性拉取过多数据
+    $limit = 1000;
+    $sql = "SELECT * FROM song_requests {$where} ORDER BY played ASC, votes DESC, created_at ASC LIMIT {$limit}";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $songs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode(['success' => true, 'songs' => $songs]);
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
 ?>    

@@ -16,29 +16,6 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
 // 获取当前管理员角色
 $admin_role = $_SESSION['admin_role'] ?? 'admin';
 require_once 'db_connect.php';
-
-// 获取所有歌曲
-$stmt = $pdo->prepare("SELECT * FROM song_requests ORDER BY played ASC, votes DESC, created_at ASC");
-$stmt->execute();
-$songs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// 获取通知
-$stmt = $pdo->prepare("SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1");
-$stmt->execute();
-$announcement = $stmt->fetch(PDO::FETCH_ASSOC);
-
-// 获取点歌规则
-$stmt = $pdo->prepare("SELECT * FROM rules ORDER BY updated_at DESC LIMIT 1");
-$stmt->execute();
-$rule = $stmt->fetch(PDO::FETCH_ASSOC);
-
-// 获取日志（仅超级管理员可见）
-$logs = [];
-if ($admin_role === 'super_admin') {
-    $log_stmt = $pdo->prepare("SELECT * FROM operation_logs ORDER BY created_at DESC LIMIT 100");
-    $log_stmt->execute();
-    $logs = $log_stmt->fetchAll(PDO::FETCH_ASSOC);
-}
 ?>
 
 <!DOCTYPE html>
@@ -57,6 +34,50 @@ if ($admin_role === 'super_admin') {
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 
     <script>
+        // 简易提示框容器（用于 showSuccessToast）
+        (function ensureToastContainer() {
+            const existing = document.getElementById('toast-container');
+            if (existing) return;
+            const create = () => {
+                if (document.getElementById('toast-container')) return;
+                const tc = document.createElement('div');
+                tc.id = 'toast-container';
+                tc.style.position = 'fixed';
+                tc.style.right = '20px';
+                tc.style.bottom = '20px';
+                tc.style.zIndex = 60;
+                document.body.appendChild(tc);
+            };
+            if (document.body) create(); else document.addEventListener('DOMContentLoaded', create);
+        })();
+
+        // 显示成功/失败提示（Tailwind 风格），自动消失
+        function showSuccessToast(message = '', success = true, timeout = 2500) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const div = document.createElement('div');
+            // Tailwind-like classes (页面可能未包含这些类时也不会报错，因为使用 className)
+            div.className = `px-4 py-2 rounded-lg shadow-md mb-2 text-sm transform transition-all duration-300 ${success ? 'bg-green-50 text-green-800 border border-green-100' : 'bg-red-50 text-red-800 border border-red-100'}`;
+            div.style.padding = '0.5rem 1rem';
+            div.style.marginBottom = '0.5rem';
+            div.style.opacity = '1';
+            div.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            div.textContent = message || (success ? '操作成功' : '操作失败');
+            container.appendChild(div);
+            // 进场动画
+            requestAnimationFrame(() => { div.style.transform = 'translateY(0)'; });
+            // 出场
+            setTimeout(() => { div.style.opacity = '0'; div.style.transform = 'translateY(8px)'; }, timeout - 300);
+            setTimeout(() => { try { container.removeChild(div); } catch(e){} }, timeout);
+
+            // 自动刷新当前面板（如果操作成功）
+            try {
+                if (success && typeof loadSection === 'function' && currentSection) {
+                    // 小延迟以便用户能看到提示
+                    setTimeout(() => { try { loadSection(currentSection, true); } catch(e){} }, 600);
+                }
+            } catch (e) { /* ignore */ }
+        }
         tailwind.config = {
             theme: {
                 extend: {
@@ -147,211 +168,10 @@ if ($admin_role === 'super_admin') {
 
             <!-- 右侧内容 -->
             <div class="lg:col-span-2">
-                <!-- 歌曲管理 -->
-                <div id="song-management" class="admin-content">
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-2xl font-bold text-dark flex items-center">
-                                <i class="fa fa-list-ul text-primary mr-2"></i>歌曲管理
-                            </h2>
-                            <div class="flex space-x-2">
-                                <div class="relative">
-                                    <input type="text" id="song-search" placeholder="搜索歌曲..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
-                                    <i class="fa fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
-                                </div>
-                                <select id="song-filter" class="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
-                                    <option value="all">全部歌曲</option>
-                                    <option value="pending">待播放</option>
-                                    <option value="played">已播放</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <!-- 批量操作工具栏 -->
-                        <div class="flex flex-wrap items-center gap-4 mb-6">
-                            <div class="flex items-center">
-                                <input type="checkbox" id="select-all" class="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary">
-                                <label for="select-all" class="ml-2 text-sm text-gray-700">全选</label>
-                            </div>
-                            <select id="batch-action" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
-                                <!-- 普通管理员可见操作 -->
-                                <option value="mark-played">批量标记为已播放</option>
-                                <option value="mark-unplayed">批量标记为待播放</option>
-                                
-                                <!-- 仅超级管理员可见操作 -->
-                                <?php if ($admin_role === 'super_admin'): ?>
-                                    <option value="delete">批量删除歌曲</option>
-                                    <option value="reset-votes">批量重置票数为0</option>
-                                <?php endif; ?>
-                            </select>
-                            <button id="execute-batch" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-all">
-                                执行操作
-                            </button>
-                            <span id="selected-count" class="text-sm text-gray-500">已选择 0 首歌曲</span>
-                        </div>
-                                                
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">选择</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">歌曲</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">点歌人</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">班级</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">投票</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-200" id="song-table-body">
-                                    <?php foreach ($songs as $song): ?>
-                                        <tr class="hover:bg-gray-50 transition-all">
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <input type="checkbox" class="song-checkbox w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary" 
-                                                       data-id="<?php echo $song['id']; ?>">
-                                            </td>
-                                                                            
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="font-medium text-gray-900"><?php echo htmlspecialchars($song['song_name']); ?></div>
-                                                <div class="text-sm text-gray-500"><?php echo htmlspecialchars($song['artist']); ?></div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($song['requestor']); ?></div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($song['class']); ?></div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900 flex items-center">
-                                                    <i class="fa fa-thumbs-up text-primary mr-1"></i>
-                                                    <span><?php echo $song['votes']; ?></span>
-                                                </div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <?php if ($song['played']): ?>
-                                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>
-                                                <?php else: ?>
-                                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                <div class="flex space-x-2">
-                                                    <?php if ($admin_role === 'super_admin'): ?>
-                                                        <button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="<?php echo $song['id']; ?>">
-                                                            <i class="fa fa-pencil"></i>
-                                                        </button>
-                                                        <button class="delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all" data-id="<?php echo $song['id']; ?>">
-                                                            <i class="fa fa-trash"></i>
-                                                        </button>
-                                                    <?php endif; ?>
-                                                    <?php if ($song['played']): ?>
-                                                        <button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="<?php echo $song['id']; ?>">
-                                                            <i class="fa fa-undo"></i>
-                                                        </button>
-                                                    <?php else: ?>
-                                                        <button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="<?php echo $song['id']; ?>">
-                                                            <i class="fa fa-check"></i>
-                                                        </button>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                <!-- 内容容器：按需加载 -->
+                <div id="admin-content-container">
+                    <!-- 初始会加载歌曲管理片段 -->
                 </div>
-
-                <!-- 通知管理 -->
-                <div id="announcement-management" class="admin-content hidden">
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-2xl font-bold text-dark flex items-center">
-                                <i class="fa fa-bullhorn text-primary mr-2"></i>通知管理
-                            </h2>
-                        </div>
-                        
-                        <form id="announcement-form" method="POST" action="update_announcement.php">
-                            <div class="mb-4">
-                                <label for="announcement_content" class="block text-sm font-medium text-gray-700 mb-1">通知内容</label>
-                                <textarea id="announcement_content" name="announcement_content" rows="5" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all" placeholder="请输入通知内容..."><?php echo htmlspecialchars($announcement['content'] ?? ''); ?></textarea>
-                            </div>
-                            <div class="flex justify-end">
-                                <button type="submit" class="px-6 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-all">
-                                    <i class="fa fa-save mr-2"></i>保存通知
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- 点歌规则管理 -->
-                <div id="rule-management" class="admin-content hidden">
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-2xl font-bold text-dark flex items-center">
-                                <i class="fa fa-book text-primary mr-2"></i>点歌规则管理
-                            </h2>
-                        </div>
-                        
-                        <form id="rule-form" method="POST" action="update_rule.php">
-                            <div class="mb-4">
-                                <label for="rule_content" class="block text-sm font-medium text-gray-700 mb-1">点歌规则内容</label>
-                                <textarea id="rule_content" name="rule_content" rows="10" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all" placeholder="请输入点歌规则内容..."><?php echo htmlspecialchars($rule['content'] ?? ''); ?></textarea>
-                            </div>
-                            <div class="flex justify-end">
-                                <button type="submit" class="px-6 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-all">
-                                    <i class="fa fa-save mr-2"></i>保存规则
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-                <?php if ($admin_role === 'super_admin'): ?>
-                <!-- 操作日志管理 -->
-                <div id="log-management" class="admin-content hidden">
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-2xl font-bold text-dark flex items-center">
-                                <i class="fa fa-file-text-o text-primary mr-2"></i>操作日志
-                            </h2>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200 text-xs md:text-sm">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">时间</th>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">用户</th>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">角色</th>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">操作类型</th>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">对象</th>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">详情</th>
-                                        <th class="px-2 py-2 text-left font-medium text-gray-500">IP</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-200">
-                                    <?php foreach ($logs as $log): ?>
-                                    <tr>
-                                        <td class="px-2 py-2 whitespace-nowrap"><?php echo htmlspecialchars($log['created_at']); ?></td>
-                                        <td class="px-2 py-2 whitespace-nowrap"><?php echo htmlspecialchars($log['user']); ?></td>
-                                        <td class="px-2 py-2 whitespace-nowrap"><?php echo htmlspecialchars($log['role']); ?></td>
-                                        <td class="px-2 py-2 whitespace-nowrap"><?php echo htmlspecialchars($log['action']); ?></td>
-                                        <td class="px-2 py-2 whitespace-nowrap"><?php echo htmlspecialchars($log['target']); ?></td>
-                                        <td class="px-2 py-2 whitespace-nowrap max-w-xs truncate" title="<?php echo htmlspecialchars($log['details']); ?>"><?php echo htmlspecialchars(mb_strimwidth($log['details'], 0, 60, '...')); ?></td>
-                                        <td class="px-2 py-2 whitespace-nowrap"><?php echo htmlspecialchars($log['ip']); ?></td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                            <?php if (empty($logs)): ?>
-                                <div class="text-gray-400 text-center py-8">暂无日志记录</div>
-                            <?php endif; ?>
-                        </div>
-                        <div class="text-gray-400 text-xs mt-2">仅显示最近100条操作日志</div>
-                    </div>
-                </div>
-                <?php endif; ?>
             </div>
         </div>
     </main>
@@ -406,403 +226,282 @@ if ($admin_role === 'super_admin') {
     </div>
     <?php endif; ?>
 
-    <!-- 成功提示框 -->
-    <div id="successToast" class="fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 flex items-center">
-        <i class="fa fa-check-circle mr-2"></i>
-        <span id="successMessage">操作成功</span>
-    </div>
-
     <script>
-        // 管理菜单切换
+        // 管理菜单切换（按需加载）
         const adminTabs = document.querySelectorAll('.admin-tab');
-        const adminContents = document.querySelectorAll('.admin-content');
-        
-        adminTabs.forEach(tab => {
-            tab.addEventListener('click', function() {
-                adminTabs.forEach(t => {
-                    t.classList.remove('bg-primary', 'text-white');
-                    t.classList.add('text-gray-700', 'hover:bg-gray-100');
-                });
-                this.classList.remove('text-gray-700', 'hover:bg-gray-100');
-                this.classList.add('bg-primary', 'text-white');
-                
-                adminContents.forEach(content => content.classList.add('hidden'));
-                document.getElementById(this.getAttribute('data-target')).classList.remove('hidden');
-            });
-        });
+        const contentContainer = document.getElementById('admin-content-container');
+        let currentSection = null;
+        let ongoingFetch = null;
 
-        // 编辑歌曲模态框（仅超级管理员）
-        <?php if ($admin_role === 'super_admin'): ?>
+        // 编辑歌曲模态与选择计数相关工具（防止未定义错误）
         const editSongModal = document.getElementById('edit-song-modal');
-        const closeEditModal = document.getElementById('close-edit-modal');
-        const editSongBtns = document.querySelectorAll('.edit-song');
-        const editSongForm = document.getElementById('edit-song-form');
-        
-        editSongBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const songId = this.getAttribute('data-id');
-                fetch(`get_song.php?id=${songId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            const song = data.song;
-                            document.getElementById('edit-song-id').value = song.id;
-                            document.getElementById('edit-song-name').value = song.song_name;
-                            document.getElementById('edit-artist').value = song.artist;
-                            document.getElementById('edit-requestor').value = song.requestor;
-                            document.getElementById('edit-class').value = song.class;
-                            document.getElementById('edit-message').value = song.message;
-                            document.getElementById('edit-votes').value = song.votes;
-                            editSongModal.classList.remove('hidden');
-                        } else {
-                            showSuccessToast('获取歌曲信息失败', false);
-                        }
-                    });
-            });
-        });
-        
-        closeEditModal.addEventListener('click', () => editSongModal.classList.add('hidden'));
-        window.addEventListener('click', (e) => {
-            if (e.target === editSongModal) editSongModal.classList.add('hidden');
-        });
-        
-        editSongForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            fetch('update_song.php', { method: 'POST', body: formData })
-                .then(response => response.json())
-                .then(data => {
-                    showSuccessToast(data.message, data.success);
-                    if (data.success) {
-                        editSongModal.classList.add('hidden');
-                        setTimeout(() => location.reload(), 1500);
-                    }
-                });
-        });
-        <?php endif; ?>
+        const closeEditModalBtn = document.getElementById('close-edit-modal');
+        if (closeEditModalBtn && editSongModal) {
+            closeEditModalBtn.addEventListener('click', () => editSongModal.classList.add('hidden'));
+            // 点击模态外部也关闭
+            editSongModal.addEventListener('click', (e) => { if (e.target === editSongModal) editSongModal.classList.add('hidden'); });
+        }
 
-        // 删除歌曲（仅超级管理员）
-        <?php if ($admin_role === 'super_admin'): ?>
-        const deleteSongBtns = document.querySelectorAll('.delete-song');
-        deleteSongBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                if (confirm('确定要删除这首歌曲吗？')) {
-                    const songId = this.getAttribute('data-id');
-                    fetch('delete_song.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: `song_id=${encodeURIComponent(songId)}`
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        showSuccessToast(data.message, data.success);
-                        if (data.success) setTimeout(() => location.reload(), 1500);
+        // 更新已选择歌曲计数并同步全选状态
+        function updateSelectedCount() {
+            const count = document.querySelectorAll('.song-checkbox:checked').length;
+            const el = document.getElementById('selected-count');
+            if (el) el.textContent = `已选择 ${count} 首歌曲`;
+            const selectAll = document.getElementById('select-all');
+            const allCheckboxes = document.querySelectorAll('.song-checkbox');
+            if (selectAll) {
+                selectAll.checked = allCheckboxes.length > 0 && count === allCheckboxes.length;
+            }
+        }
+
+        function setActiveTab(target) {
+            adminTabs.forEach(t => {
+                t.classList.remove('bg-primary', 'text-white');
+                t.classList.add('text-gray-700', 'hover:bg-gray-100');
+            });
+            const tab = Array.from(adminTabs).find(t => t.getAttribute('data-target') === target);
+            if (tab) {
+                tab.classList.remove('text-gray-700', 'hover:bg-gray-100');
+                tab.classList.add('bg-primary', 'text-white');
+            }
+        }
+
+        async function loadSection(section, force = false) {
+            if (currentSection === section && !force) return;
+            if (ongoingFetch && typeof ongoingFetch.abort === 'function') ongoingFetch.abort();
+            contentContainer.innerHTML = '';
+            currentSection = section;
+            setActiveTab(section);
+            const controller = new AbortController();
+            ongoingFetch = controller;
+            try {
+                const res = await fetch(`admin_fragment.php?section=${encodeURIComponent(section)}`, { signal: controller.signal });
+                if (!res.ok) throw new Error('加载失败');
+                const html = await res.text();
+                contentContainer.innerHTML = html;
+                initSectionBindings(section);
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                console.error('加载片段出错:', err);
+                contentContainer.innerHTML = `<div class="bg-white rounded-xl shadow-lg p-6 mb-8 text-red-500">加载失败，请重试</div>`;
+            } finally {
+                if (ongoingFetch === controller) ongoingFetch = null;
+            }
+        }
+
+        adminTabs.forEach(tab => {
+            tab.addEventListener('click', () => loadSection(tab.getAttribute('data-target')));
+        });
+
+        // 初始加载默认面板
+        loadSection('song-management');
+
+            // 通知和规则表单提交（在绑定函数中处理）
+
+            // 搜索和过滤功能
+            // 绑定并初始化加载后面板的事件
+            function initSectionBindings(section) {
+                // 搜索与过滤（歌曲管理）
+                if (section === 'song-management') {
+                    const songSearch = document.getElementById('song-search');
+                    const songFilter = document.getElementById('song-filter');
+                    const songTableBody = document.getElementById('song-table-body');
+
+                    // 绑定全选与复选、计数
+                    document.getElementById('select-all')?.addEventListener('change', function() {
+                        const isChecked = this.checked;
+                        document.querySelectorAll('.song-checkbox').forEach(cb => cb.checked = isChecked);
+                        updateSelectedCount();
+                    });
+                    document.querySelectorAll('.song-checkbox').forEach(cb => cb.addEventListener('change', updateSelectedCount));
+
+                    // 过滤发送到后端更准确（避免在前端保存全部数据）
+                    async function fetchFiltered() {
+                        const q = songSearch?.value || '';
+                        const filter = songFilter?.value || 'all';
+                        const params = new URLSearchParams({ q, filter });
+                        try {
+                            const res = await fetch('get_song.php?'+params.toString());
+                            const data = await res.json();
+                            if (!data.success) {
+                                songTableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center"><div class="text-gray-500">加载失败</div></td></tr>';
+                                return;
+                            }
+                            // 渲染行
+                            songTableBody.innerHTML = '';
+                            if (!data.songs || data.songs.length === 0) {
+                                songTableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center"><div class="text-gray-500">没有找到匹配的歌曲</div></td></tr>';
+                                return;
+                            }
+                            data.songs.forEach(song => {
+                                const tr = document.createElement('tr');
+                                tr.className = 'hover:bg-gray-50 transition-all';
+                                tr.innerHTML = `\
+                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                        <input type=\"checkbox\" class=\"song-checkbox w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary\" data-id=\"${song.id}\">\
+                                    </td>\
+                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                        <div class="font-medium text-gray-900">${escapeHtml(song.song_name)}</div>\
+                                        <div class="text-sm text-gray-500">${escapeHtml(song.artist)}</div>\
+                                    </td>\
+                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                        <div class="text-sm text-gray-900">${escapeHtml(song.requestor)}</div>\
+                                    </td>\
+                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                        <div class="text-sm text-gray-900">${escapeHtml(song.class)}</div>\
+                                    </td>\
+                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                        <div class="text-sm text-gray-900 flex items-center">\
+                                            <i class=\"fa fa-thumbs-up text-primary mr-1\">\</i>\
+                                            <span>${song.votes}</span>\
+                                        </div>\
+                                    </td>\
+                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                        ${song.played ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>' : '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>'}\
+                                    </td>\
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">\
+                                        <div class="flex space-x-2">\
+                                            ${<?php echo $admin_role === 'super_admin' ? 'true' : 'false'; ?> ? `<button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="${song.id}"><i class="fa fa-pencil"></i></button><button class="delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all" data-id="${song.id}"><i class="fa fa-trash"></i></button>` : ''} \
+                                            ${song.played ? `<button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="${song.id}"><i class="fa fa-undo"></i></button>` : `<button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="${song.id}"><i class="fa fa-check"></i></button>`} \
+                                        </div>\
+                                    </td>`;
+                                songTableBody.appendChild(tr);
+                            });
+                            // 重新绑定事件到新元素
+                            bindSongEvents();
+                        } catch (err) {
+                            console.error('获取歌曲失败', err);
+                        }
+                    }
+
+                    songSearch?.addEventListener('input', debounce(fetchFiltered, 250));
+                    songFilter?.addEventListener('change', fetchFiltered);
+                    // 首次渲染
+                    fetchFiltered();
+                }
+
+                // 通知与规则表单提交
+                if (section === 'announcement-management') {
+                    document.getElementById('announcement-form')?.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const formData = new FormData(this);
+                        fetch('update_announcement.php', { method: 'POST', body: formData })
+                            .then(response => response.json())
+                            .then(data => { showSuccessToast(data.message, data.success); if (data.success) setTimeout(() => loadSection('announcement-management', true), 600); });
                     });
                 }
-            });
-        });
-        <?php endif; ?>
+                if (section === 'rule-management') {
+                    document.getElementById('rule-form')?.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const formData = new FormData(this);
+                        fetch('update_rule.php', { method: 'POST', body: formData })
+                            .then(response => response.json())
+                            .then(data => { showSuccessToast(data.message, data.success); if (data.success) setTimeout(() => loadSection('rule-management', true), 600); });
+                    });
+                }
 
-        // 标记播放状态（所有管理员均可操作）
-        const markPlayedBtns = document.querySelectorAll('.mark-played');
-        markPlayedBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const songId = this.getAttribute('data-id');
-                fetch('mark_played.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `song_id=${encodeURIComponent(songId)}&played=1`
-                })
-                .then(response => response.json())
-                .then(data => {
-                    showSuccessToast(data.message, data.success);
-                    if (data.success) setTimeout(() => location.reload(), 1500);
-                });
-            });
-        });
-
-        const markUnplayedBtns = document.querySelectorAll('.mark-unplayed');
-        markUnplayedBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const songId = this.getAttribute('data-id');
-                fetch('mark_played.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `song_id=${encodeURIComponent(songId)}&played=0`
-                })
-                .then(response => response.json())
-                .then(data => {
-                    showSuccessToast(data.message, data.success);
-                    if (data.success) setTimeout(() => location.reload(), 1500);
-                });
-            });
-        });
-
-        // 通知和规则表单提交（所有管理员均可操作）
-        document.getElementById('announcement-form')?.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            fetch('update_announcement.php', { method: 'POST', body: formData })
-                .then(response => response.json())
-                .then(data => showSuccessToast(data.message, data.success));
-        });
-
-        document.getElementById('rule-form')?.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            fetch('update_rule.php', { method: 'POST', body: formData })
-                .then(response => response.json())
-                .then(data => showSuccessToast(data.message, data.success));
-        });
-
-        // 搜索和过滤功能
-        const songSearch = document.getElementById('song-search');
-        const songFilter = document.getElementById('song-filter');
-        const songTableBody = document.getElementById('song-table-body');
-        let originalSongs = <?php echo json_encode($songs); ?>;
-        
-        function filterSongs() {
-            const searchTerm = songSearch.value.toLowerCase();
-            const filterValue = songFilter.value;
-            let filteredSongs = originalSongs.filter(song => {
-                const matchesSearch = 
-                    song.song_name.toLowerCase().includes(searchTerm) || 
-                    song.artist.toLowerCase().includes(searchTerm) || 
-                    song.requestor.toLowerCase().includes(searchTerm) || 
-                    song.class.toLowerCase().includes(searchTerm);
-                const matchesFilter = 
-                    filterValue === 'all' || 
-                    (filterValue === 'pending' && !song.played) || 
-                    (filterValue === 'played' && song.played);
-                return matchesSearch && matchesFilter;
-            });
-
-            songTableBody.innerHTML = '';
-            if (filteredSongs.length === 0) {
-                songTableBody.innerHTML = `
-                    <tr><td colspan="6" class="px-6 py-12 text-center"><div class="text-gray-500">没有找到匹配的歌曲</div></td></tr>
-                `;
-                return;
+                // 日志表无需额外绑定
             }
 
-            filteredSongs.forEach(song => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-gray-50 transition-all';
-                row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="font-medium text-gray-900">${song.song_name}</div>
-                        <div class="text-sm text-gray-500">${song.artist}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-900">${song.requestor}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-900">${song.class}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-900 flex items-center">
-                            <i class="fa fa-thumbs-up text-primary mr-1"></i>
-                            <span>${song.votes}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        ${song.played ? 
-                            '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>' : 
-                            '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>'
-                        }
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div class="flex space-x-2">
-                            <?php if ($admin_role === 'super_admin'): ?>
-                                <button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="${song.id}">
-                                    <i class="fa fa-pencil"></i>
-                                </button>
-                                <button class="delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all" data-id="${song.id}">
-                                    <i class="fa fa-trash"></i>
-                                </button>
-                            <?php endif; ?>
-                            ${song.played ? 
-                                `<button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="${song.id}">
-                                    <i class="fa fa-undo"></i>
-                                </button>` : 
-                                `<button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="${song.id}">
-                                    <i class="fa fa-check"></i>
-                                </button>`
-                            }
-                        </div>
-                    </td>
-                `;
-                songTableBody.appendChild(row);
-            });
-            bindSongEvents();
-        }
-        
-        function bindSongEvents() {
-            <?php if ($admin_role === 'super_admin'): ?>
-            document.querySelectorAll('.edit-song').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    // 编辑功能绑定（同前文逻辑）
-                    const songId = this.getAttribute('data-id');
-                    fetch(`get_song.php?id=${songId}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                const song = data.song;
-                                document.getElementById('edit-song-id').value = song.id;
-                                document.getElementById('edit-song-name').value = song.song_name;
-                                document.getElementById('edit-artist').value = song.artist;
-                                document.getElementById('edit-requestor').value = song.requestor;
-                                document.getElementById('edit-class').value = song.class;
-                                document.getElementById('edit-message').value = song.message;
-                                document.getElementById('edit-votes').value = song.votes;
-                                editSongModal.classList.remove('hidden');
-                            }
-                        });
-                });
-            });
-
-            document.querySelectorAll('.delete-song').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    // 删除功能绑定（同前文逻辑）
-                    if (confirm('确定要删除这首歌曲吗？')) {
+            // 绑定歌曲相关操作（编辑/删除/标记/批量）
+            function bindSongEvents() {
+                // 编辑（弹窗）
+                document.querySelectorAll('.edit-song').forEach(btn => {
+                    btn.addEventListener('click', function() {
                         const songId = this.getAttribute('data-id');
-                        fetch('delete_song.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: `song_id=${encodeURIComponent(songId)}`
-                        })
-                        .then(response => response.json())
+                        fetch(`get_song.php?id=${songId}`)
+                            .then(r => r.json())
+                            .then(data => {
+                                if (data.success) {
+                                    document.getElementById('edit-song-id').value = data.song.id;
+                                    document.getElementById('edit-song-name').value = data.song.song_name;
+                                    document.getElementById('edit-artist').value = data.song.artist;
+                                    document.getElementById('edit-requestor').value = data.song.requestor;
+                                    document.getElementById('edit-class').value = data.song.class;
+                                    document.getElementById('edit-message').value = data.song.message;
+                                    document.getElementById('edit-votes').value = data.song.votes;
+                                    editSongModal.classList.remove('hidden');
+                                }
+                            });
+                    });
+                });
+
+                // 删除
+                document.querySelectorAll('.delete-song').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        if (!confirm('确定要删除这首歌曲吗？')) return;
+                        const songId = this.getAttribute('data-id');
+                        fetch('delete_song.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(songId)}` })
+                            .then(r => r.json())
+                            .then(data => {
+                                showSuccessToast(data.message, data.success);
+                                if (data.success) setTimeout(() => loadSection('song-management', true), 800);
+                            });
+                    });
+                });
+
+                // 标记播放/未播放
+                document.querySelectorAll('.mark-played').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const songId = this.getAttribute('data-id');
+                        fetch('mark_played.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(songId)}&played=1` })
+                            .then(r => r.json())
+                            .then(data => {
+                                showSuccessToast(data.message, data.success);
+                                if (data.success) setTimeout(() => loadSection('song-management', true), 800);
+                            });
+                    });
+                });
+                document.querySelectorAll('.mark-unplayed').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const songId = this.getAttribute('data-id');
+                        fetch('mark_played.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(songId)}&played=0` })
+                            .then(r => r.json())
+                            .then(data => {
+                                showSuccessToast(data.message, data.success);
+                                if (data.success) setTimeout(() => loadSection('song-management', true), 800);
+                            });
+                    });
+                });
+
+                // 批量操作
+                document.getElementById('execute-batch')?.addEventListener('click', function() {
+                    const selectedIds = Array.from(document.querySelectorAll('.song-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
+                    if (selectedIds.length === 0) { showSuccessToast('请至少选择一首歌曲', false); return; }
+                    const action = document.getElementById('batch-action').value;
+                    if (action === 'delete' && !confirm(`确定要批量删除选中的${selectedIds.length}首歌曲吗？此操作不可恢复！`)) return;
+                    fetch('batch_operation.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `action=${encodeURIComponent(action)}&song_ids=${selectedIds.join(',')}` })
+                        .then(r => r.json())
                         .then(data => {
                             showSuccessToast(data.message, data.success);
-                            if (data.success) setTimeout(() => location.reload(), 1500);
-                        });
-                    }
+                            if (data.success) setTimeout(() => loadSection('song-management', true), 800);
+                        })
+                        .catch(err => { showSuccessToast('操作失败，请重试', false); console.error(err); });
                 });
-            });
-            <?php endif; ?>
 
-            // 播放状态修改绑定（所有管理员）
-            document.querySelectorAll('.mark-played').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const songId = this.getAttribute('data-id');
-                    fetch('mark_played.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: `song_id=${encodeURIComponent(songId)}&played=1`
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        showSuccessToast(data.message, data.success);
-                        if (data.success) setTimeout(() => location.reload(), 1500);
+                // 编辑歌曲表单 AJAX 提交（如果存在）
+                const editForm = document.getElementById('edit-song-form');
+                if (editForm) {
+                    editForm.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const formData = new FormData(this);
+                        fetch(this.action || 'update_song.php', { method: 'POST', body: formData })
+                            .then(r => r.json())
+                            .then(data => {
+                                showSuccessToast(data.message, data.success);
+                                if (data.success) {
+                                    // 关闭模态
+                                    if (editSongModal) editSongModal.classList.add('hidden');
+                                }
+                            })
+                            .catch(err => { showSuccessToast('保存失败', false); console.error(err); });
                     });
-                });
-            });
-
-            document.querySelectorAll('.mark-unplayed').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const songId = this.getAttribute('data-id');
-                    fetch('mark_played.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: `song_id=${encodeURIComponent(songId)}&played=0`
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        showSuccessToast(data.message, data.success);
-                        if (data.success) setTimeout(() => location.reload(), 1500);
-                    });
-                });
-            });
-        }
-        
-        songSearch.addEventListener('input', filterSongs);
-        songFilter.addEventListener('change', filterSongs);
-
-        // 提示框功能
-        function showSuccessToast(message, isSuccess = true) {
-            const toast = document.getElementById('successToast');
-            const messageEl = document.getElementById('successMessage');
-            messageEl.textContent = message;
-            toast.classList.remove('bg-green-500', 'bg-red-500');
-            toast.classList.add(isSuccess ? 'bg-green-500' : 'bg-red-500');
-            toast.classList.remove('translate-y-20', 'opacity-0');
-            toast.classList.add('translate-y-0', 'opacity-100');
-            setTimeout(() => {
-                toast.classList.remove('translate-y-0', 'opacity-100');
-                toast.classList.add('translate-y-20', 'opacity-0');
-            }, 3000);
-        }
-        
-        //批量操作功能，添加前端交互逻辑（ admin.php 中的 <script> 部分）
-        // 全选复选框逻辑
-        document.getElementById('select-all').addEventListener('change', function() {
-            const isChecked = this.checked;
-            const checkboxes = document.querySelectorAll('.song-checkbox');
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = isChecked;
-            });
-            updateSelectedCount(); // 更新选中数量
-        });
-        // 监听单个复选框变化，更新选中数量
-        document.querySelectorAll('.song-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', updateSelectedCount);
-        });
-        
-        // 更新选中数量显示
-        function updateSelectedCount() {
-            const selectedCount = document.querySelectorAll('.song-checkbox:checked').length;
-            document.getElementById('selected-count').textContent = `已选择 ${selectedCount} 首歌曲`;
-        }
-        // 执行批量操作按钮点击事件
-        document.getElementById('execute-batch').addEventListener('click', function() {
-            // 1. 获取选中的歌曲ID
-            const selectedIds = [];
-            document.querySelectorAll('.song-checkbox:checked').forEach(checkbox => {
-                selectedIds.push(checkbox.getAttribute('data-id'));
-            });
-            
-            // 2. 验证选中数量
-            if (selectedIds.length === 0) {
-                showSuccessToast('请至少选择一首歌曲', false);
-                return;
-            }
-            
-            // 3. 获取操作类型并确认
-            const action = document.getElementById('batch-action').value;
-            const actionTextMap = {
-                'mark-played': '标记为已播放',
-                'mark-unplayed': '标记为待播放',
-                'delete': '删除',
-                'reset-votes': '重置票数为0'
-            };
-            const actionText = actionTextMap[action];
-            
-            // 4. 危险操作二次确认（删除）
-            if (action === 'delete' && !confirm(`确定要批量${actionText}选中的${selectedIds.length}首歌曲吗？此操作不可恢复！`)) {
-                return;
-            }
-            
-            // 5. 发送请求到后端
-            fetch('batch_operation.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `action=${encodeURIComponent(action)}&song_ids=${selectedIds.join(',')}`
-            })
-            .then(response => response.json())
-            .then(data => {
-                showSuccessToast(data.message, data.success);
-                if (data.success) {
-                    // 操作成功后刷新页面
-                    setTimeout(() => window.location.reload(), 1500);
                 }
-            })
-            .catch(error => {
-                showSuccessToast('操作失败，请重试', false);
-                console.error('批量操作错误:', error);
-            });
-        });
+            }
+
+            // 简单工具函数
+            function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+            function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
     </script>
 </body>
 </html>
