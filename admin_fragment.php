@@ -56,52 +56,53 @@ if ($section === 'song-management') {
             <span id="selected-count" class="text-sm text-gray-500">已选择 0 首歌曲</span>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">选择</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">歌曲</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">点歌人</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">班级</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">投票</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200" id="song-table-body">
+        <!-- 桌面表格（大屏显示） -->
+        <div class="hidden lg:block">
+                <table class="table-fixed w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">选择</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">歌曲</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">点歌人</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">班级</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">投票</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="song-table-body">
                     <?php foreach ($songs as $song): ?>
                         <tr class="hover:bg-gray-50 transition-all">
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-3 py-2 whitespace-normal break-words">
                                 <input type="checkbox" class="song-checkbox w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary" 
                                        data-id="<?php echo $song['id']; ?>">
                             </td>
                                                 
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-3 py-2 whitespace-normal break-words">
                                 <div class="font-medium text-gray-900"><?php echo htmlspecialchars($song['song_name']); ?></div>
                                 <div class="text-sm text-gray-500"><?php echo htmlspecialchars($song['artist']); ?></div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-3 py-2 whitespace-normal break-words">
                                 <div class="text-sm text-gray-900"><?php echo htmlspecialchars($song['requestor']); ?></div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-3 py-2 whitespace-normal break-words">
                                 <div class="text-sm text-gray-900"><?php echo htmlspecialchars($song['class']); ?></div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-3 py-2 whitespace-normal break-words">
                                 <div class="text-sm text-gray-900 flex items-center">
                                     <i class="fa fa-thumbs-up text-primary mr-1"></i>
                                     <span><?php echo $song['votes']; ?></span>
                                 </div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-3 py-2 whitespace-normal break-words">
                                 <?php if ($song['played']): ?>
                                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>
                                 <?php else: ?>
                                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>
                                 <?php endif; ?>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <div class="flex space-x-2">
+                            <td class="px-3 py-2 whitespace-normal break-words text-sm text-gray-500">
+                                <div class="flex flex-wrap items-center gap-2">
                                     <?php if ($admin_role === 'super_admin'): ?>
                                         <button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="<?php echo $song['id']; ?>">
                                             <i class="fa fa-pencil"></i>
@@ -125,7 +126,54 @@ if ($section === 'song-management') {
                     <?php endforeach; ?>
                 </tbody>
             </table>
-        </div>
+    </div>
+
+    <!-- 小屏卡片堆叠（移动/窄屏显示） -->
+    <div id="song-card-list" class="space-y-4 lg:hidden">
+        <?php foreach ($songs as $song): ?>
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-start space-x-3">
+                    <div class="flex-shrink-0">
+                        <input type="checkbox" class="song-checkbox w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary" data-id="<?php echo $song['id']; ?>">
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-base font-medium text-gray-900 mb-1 max-h-16 overflow-y-auto"><?php echo htmlspecialchars($song['song_name']); ?></div>
+                        <div class="text-sm text-gray-500 max-h-12 overflow-y-auto">歌手：<?php echo htmlspecialchars($song['artist']); ?></div>
+                        <div class="text-sm text-gray-700 mt-2 grid grid-cols-2 gap-2">
+                            <div class="text-sm text-gray-900 max-h-12 overflow-y-auto">点歌人：<?php echo htmlspecialchars($song['requestor']); ?></div>
+                            <div class="text-sm text-gray-900 max-h-12 overflow-y-auto">班级：<?php echo htmlspecialchars($song['class']); ?></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="text-sm text-gray-700 flex items-center">
+                            <i class="fa fa-thumbs-up text-primary mr-1"></i>
+                            <span><?php echo $song['votes']; ?></span>
+                        </div>
+                        <div class="text-sm">
+                            <?php if ($song['played']): ?>
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>
+                            <?php else: ?>
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <?php if ($admin_role === 'super_admin'): ?>
+                            <button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="<?php echo $song['id']; ?>"><i class="fa fa-pencil"></i></button>
+                            <button class="delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all" data-id="<?php echo $song['id']; ?>"><i class="fa fa-trash"></i></button>
+                        <?php endif; ?>
+                        <?php if ($song['played']): ?>
+                            <button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="<?php echo $song['id']; ?>"><i class="fa fa-undo"></i></button>
+                        <?php else: ?>
+                            <button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="<?php echo $song['id']; ?>"><i class="fa fa-check"></i></button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
     </div>
     <?php
 } elseif ($section === 'announcement-management') {

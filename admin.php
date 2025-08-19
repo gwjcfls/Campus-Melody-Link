@@ -269,6 +269,9 @@ require_once 'db_connect.php';
         async function loadSection(section, force = false) {
             if (currentSection === section && !force) return;
             if (ongoingFetch && typeof ongoingFetch.abort === 'function') ongoingFetch.abort();
+            // 保存当前页面滚动位置，防止刷新后跳到页面顶部
+            const savedScrollY = window.scrollY || window.pageYOffset || 0;
+            // 清空内容前记录当前 section，并清空内容
             contentContainer.innerHTML = '';
             currentSection = section;
             setActiveTab(section);
@@ -280,6 +283,8 @@ require_once 'db_connect.php';
                 const html = await res.text();
                 contentContainer.innerHTML = html;
                 initSectionBindings(section);
+                // 尝试恢复之前的滚动位置（若页面内元素未改变太多）
+                try { window.scrollTo({ top: savedScrollY, behavior: 'auto' }); } catch (e) { /* ignore */ }
             } catch (err) {
                 if (err.name === 'AbortError') return;
                 console.error('加载片段出错:', err);
@@ -327,45 +332,84 @@ require_once 'db_connect.php';
                                 songTableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center"><div class="text-gray-500">加载失败</div></td></tr>';
                                 return;
                             }
-                            // 渲染行
+                            // 渲染表格行与卡片列表（移动端）
                             songTableBody.innerHTML = '';
+                            const cardList = document.getElementById('song-card-list');
+                            if (cardList) cardList.innerHTML = '';
                             if (!data.songs || data.songs.length === 0) {
                                 songTableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center"><div class="text-gray-500">没有找到匹配的歌曲</div></td></tr>';
                                 return;
                             }
                             data.songs.forEach(song => {
+                                // 表格行（桌面）
                                 const tr = document.createElement('tr');
                                 tr.className = 'hover:bg-gray-50 transition-all';
                                 tr.innerHTML = `\
-                                    <td class="px-6 py-4 whitespace-nowrap">\
+                                    <td class="px-3 py-2 whitespace-normal break-words">\
                                         <input type=\"checkbox\" class=\"song-checkbox w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary\" data-id=\"${song.id}\">\
                                     </td>\
-                                    <td class="px-6 py-4 whitespace-nowrap">\
-                                        <div class="font-medium text-gray-900">${escapeHtml(song.song_name)}</div>\
-                                        <div class="text-sm text-gray-500">${escapeHtml(song.artist)}</div>\
+                                    <td class="px-3 py-2 whitespace-normal break-words">\
+                                        <div class=\"font-medium text-gray-900\">${escapeHtml(song.song_name)}</div>\
+                                        <div class=\"text-sm text-gray-500\">${escapeHtml(song.artist)}</div>\
                                     </td>\
-                                    <td class="px-6 py-4 whitespace-nowrap">\
-                                        <div class="text-sm text-gray-900">${escapeHtml(song.requestor)}</div>\
+                                    <td class="px-3 py-2 whitespace-normal break-words">\
+                                        <div class=\"text-sm text-gray-900\">${escapeHtml(song.requestor)}</div>\
                                     </td>\
-                                    <td class="px-6 py-4 whitespace-nowrap">\
-                                        <div class="text-sm text-gray-900">${escapeHtml(song.class)}</div>\
+                                    <td class="px-3 py-2 whitespace-normal break-words">\
+                                        <div class=\"text-sm text-gray-900\">${escapeHtml(song.class)}</div>\
                                     </td>\
-                                    <td class="px-6 py-4 whitespace-nowrap">\
-                                        <div class="text-sm text-gray-900 flex items-center">\
-                                            <i class=\"fa fa-thumbs-up text-primary mr-1\">\</i>\
+                                    <td class="px-3 py-2 whitespace-normal break-words">\
+                                        <div class=\"text-sm text-gray-900 flex items-center\">\
+                                            <i class=\"fa fa-thumbs-up text-primary mr-1\"></i>\
                                             <span>${song.votes}</span>\
                                         </div>\
                                     </td>\
-                                    <td class="px-6 py-4 whitespace-nowrap">\
-                                        ${Number(song.played) ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>' : '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>'}\
+                                    <td class="px-3 py-2 whitespace-normal break-words">\
+                                        ${Number(song.played) ? '<span class=\"px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800\">已播放</span>' : '<span class=\"px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800\">待播放</span>'}\
                                     </td>\
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">\
-                                        <div class="flex space-x-2">\
-                                            ${<?php echo $admin_role === 'super_admin' ? 'true' : 'false'; ?> ? `<button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="${song.id}"><i class="fa fa-pencil"></i></button><button class="delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all" data-id="${song.id}"><i class="fa fa-trash"></i></button>` : ''} \
-                                            ${Number(song.played) ? `<button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="${song.id}"><i class="fa fa-undo"></i></button>` : `<button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="${song.id}"><i class="fa fa-check"></i></button>`} \
+                                    <td class="px-3 py-2 whitespace-normal break-words text-sm text-gray-500">\
+                                        <div class=\"flex flex-wrap items-center gap-2\">\
+                                            ${<?php echo $admin_role === 'super_admin' ? 'true' : 'false'; ?> ? `<button class=\"edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-pencil\"></i></button><button class=\"delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-trash\"></i></button>` : ''} \                                         
+                                            ${Number(song.played) ? `<button class=\"mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-undo\"></i></button>` : `<button class=\"mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-check\"></i></button>`} \                                       
                                         </div>\
                                     </td>`;
                                 songTableBody.appendChild(tr);
+
+                                // 卡片项（移动）
+                                if (cardList) {
+                                    const card = document.createElement('div');
+                                    card.className = 'bg-white rounded-lg shadow p-4';
+                                    card.innerHTML = `\
+                                        <div class=\"flex items-start space-x-3\">\
+                                            <div class=\"flex-shrink-0\">\
+                                                <input type=\"checkbox\" class=\"song-checkbox w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary\" data-id=\"${song.id}\">\
+                                            </div>\
+                                            <div class=\"flex-1 min-w-0\">\
+                                                <div class=\"text-base font-medium text-gray-900 mb-1 max-h-16 overflow-y-auto\">${escapeHtml(song.song_name)}</div>\
+                                                <div class=\"text-sm text-gray-500 max-h-12 overflow-y-auto\">歌手：${escapeHtml(song.artist)}</div>\
+                                                <div class=\"text-sm text-gray-700 mt-2 grid grid-cols-2 gap-2\">\
+                                                    <div class=\"text-sm text-gray-900 max-h-12 overflow-y-auto\">点歌人：${escapeHtml(song.requestor)}</div>\
+                                                    <div class=\"text-sm text-gray-900 max-h-12 overflow-y-auto\">班级：${escapeHtml(song.class)}</div>\
+                                                </div>\
+                                            </div>\
+                                        </div>\
+                                        <div class=\"mt-3 flex items-center justify-between\">\
+                                            <div class=\"flex items-center space-x-3\">\
+                                                <div class=\"text-sm text-gray-700 flex items-center\">\
+                                                    <i class=\"fa fa-thumbs-up text-primary mr-1\"></i>\
+                                                    <span>${song.votes}</span>\
+                                                </div>\
+                                                <div class=\"text-sm\">\
+                                                    ${Number(song.played) ? '<span class=\"px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800\">已播放</span>' : '<span class=\"px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800\">待播放</span>'}\
+                                                </div>\
+                                            </div>\
+                                            <div class=\"flex items-center space-x-2\">\
+                                                ${<?php echo $admin_role === 'super_admin' ? 'true' : 'false'; ?> ? `<button class=\"edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-pencil\"></i></button><button class=\"delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-trash\"></i></button>` : ''} \                                                
+                                                ${Number(song.played) ? `<button class=\"mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-undo\"></i></button>` : `<button class=\"mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all\" data-id=\"${song.id}\"><i class=\"fa fa-check\"></i></button>`} \                                          
+                                            </div>\
+                                        </div>`;
+                                    cardList.appendChild(card);
+                                }
                             });
                             // 重新绑定事件到新元素
                             bindSongEvents();
