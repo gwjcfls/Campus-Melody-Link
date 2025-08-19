@@ -357,12 +357,12 @@ require_once 'db_connect.php';
                                         </div>\
                                     </td>\
                                     <td class="px-6 py-4 whitespace-nowrap">\
-                                        ${song.played ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>' : '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>'}\
+                                        ${Number(song.played) ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>' : '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>'}\
                                     </td>\
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">\
                                         <div class="flex space-x-2">\
                                             ${<?php echo $admin_role === 'super_admin' ? 'true' : 'false'; ?> ? `<button class="edit-song p-1.5 rounded bg-blue-100 text-blue-600 hover:bg-blue-200 transition-all" data-id="${song.id}"><i class="fa fa-pencil"></i></button><button class="delete-song p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200 transition-all" data-id="${song.id}"><i class="fa fa-trash"></i></button>` : ''} \
-                                            ${song.played ? `<button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="${song.id}"><i class="fa fa-undo"></i></button>` : `<button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="${song.id}"><i class="fa fa-check"></i></button>`} \
+                                            ${Number(song.played) ? `<button class="mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all" data-id="${song.id}"><i class="fa fa-undo"></i></button>` : `<button class="mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all" data-id="${song.id}"><i class="fa fa-check"></i></button>`} \
                                         </div>\
                                     </td>`;
                                 songTableBody.appendChild(tr);
