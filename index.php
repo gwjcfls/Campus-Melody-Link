@@ -10,6 +10,41 @@ ini_set('session.regenerate_id', 'On'); // 每次请求刷新Session ID，防止
 
 session_start();
 require_once 'db_connect.php';
+// 服务端投票时间硬校验
+function is_vote_open(PDO $pdo): bool {
+    $stmt = $pdo->prepare('SELECT * FROM time_settings ORDER BY id DESC LIMIT 1');
+    $stmt->execute();
+    $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$settings) return true; // 无配置默认放行
+    if (($settings['mode'] ?? 'manual') === 'manual') {
+        return !empty($settings['manual_vote_enabled']);
+    }
+    $rulesStmt = $pdo->query("SELECT * FROM time_rules WHERE active=1");
+    $rules = $rulesStmt ? $rulesStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    $nowTs = time();
+    foreach ($rules as $r) {
+        $feature = $r['feature'] ?? 'both';
+        if ($feature !== 'vote' && $feature !== 'both') continue;
+        if (eval_rule_window_server($r, $nowTs)) return true;
+    }
+    return false;
+}
+
+function eval_rule_window_server(array $r, int $nowTs): bool {
+    $N = (int)date('N', $nowTs);
+    $HMS = date('H:i:s', $nowTs);
+    $type = (int)$r['type'];
+    $startW = isset($r['start_weekday']) ? (int)$r['start_weekday'] : null;
+    $endW = isset($r['end_weekday']) ? (int)$r['end_weekday'] : null;
+    $startT = $r['start_time'] ?? null;
+    $endT = $r['end_time'] ?? null;
+    $toIndex = function($w, $t) { if ($w === null || $t === null) return null; [$h,$m,$s]=array_map('intval', explode(':',$t)); return ($w-1)*24*60 + $h*60 + $m + ($s>0?1:0); };
+    $nowIdx = $toIndex($N, $HMS);
+    if ($type === 1) { if (!$startT || !$endT) return false; $a=strtotime(date('Y-m-d ',$nowTs).$startT); $b=strtotime(date('Y-m-d ',$nowTs).$endT); if ($b <= $a) $b += 86400; return $nowTs >= $a && $nowTs < $b; }
+    if ($type === 2) { if ($startW===null||$endW===null||!$startT||!$endT) return false; $si=$toIndex($startW,$startT); $ei=$toIndex($endW,$endT); $wrap = $ei <= $si; return $wrap ? ($nowIdx >= $si || $nowIdx < $ei) : ($nowIdx >= $si && $nowIdx < $ei); }
+    if ($type === 3) { if ($startW===null||$endW===null||!$startT||!$endT) return false; $in = $startW <= $endW ? ($N >= $startW && $N <= $endW) : ($N >= $startW || $N <= $endW); $a=strtotime(date('Y-m-d ',$nowTs).$startT); $b=strtotime(date('Y-m-d ',$nowTs).$endT); if ($b <= $a) $b += 86400; return $in && ($nowTs >= $a && $nowTs < $b); }
+    return false;
+}
 
 // 获取通知
 $stmt = $pdo->prepare("SELECT content FROM announcements ORDER BY created_at DESC LIMIT 1");
@@ -31,10 +66,15 @@ $stmt = $pdo->prepare("SELECT * FROM song_requests WHERE played = true ORDER BY 
 $stmt->execute();
 $played_songs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 增加/取消投票（替换原投票逻辑）
+// 增加/取消投票（替换原投票逻辑，含后端时间硬校验）
 if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action'])) {
     $song_id = $_GET['vote'];
     $action = $_GET['action'];
+    // 后端防刷：时间窗口硬校验
+    if (!is_vote_open($pdo)) {
+        http_response_code(403);
+        exit;
+    }
     
     if ($action === 'add') {
         // 点赞：票数+1
@@ -134,11 +174,16 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
             .animate-pulse {
                 animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
             }
+            /* .fa.fa-ban {
+                color: red;
+                font-size:60px;
+            } */
         }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
+
     </style>
 </head>
 <body class="font-sans kawaii-pattern">
@@ -167,8 +212,8 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
         <!-- 通知区域 -->
         <div class="bg-white border-l-4 border-primary p-5 rounded-2xl mb-8 relative overflow-hidden shadow-cute">
             <div class="flex items-start">
-                <div class="flex-shrink-0 bg-primary/10 p-3 rounded-full">
-                    <i class="fa fa-bullhorn text-primary text-xl fa-beat"></i>
+                <div class="flex-shrink-0 bg-primary/10 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center">
+                    <i class="fa fa-bullhorn text-primary text-2xl md:text-3xl"></i>
                 </div>
                 <div class="ml-4">
                     <h3 class="text-lg font-bold text-primary">校园广播通知</h3>
@@ -253,11 +298,15 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
         
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <!-- 左侧：点歌表单 -->
-            <div class="lg:col-span-1">
-                <div class="bg-white rounded-3xl shadow-cute p-6 sticky top-24">
+            <div class="lg:col-span-1 space-y-4">
+                <div class="bg-white rounded-3xl shadow-cute p-6 sticky top-24" id="request-card">
                     <h2 class="text-2xl font-display font-bold text-dark mb-6 flex items-center">
                         <i class="fa fa-headphones text-primary mr-3"></i>点歌台
                     </h2>
+                    <div class="flex gap-4">
+                        <div id="request-status" class="mb-4 text-sm text-dark/60"></div>
+                        <div id="request-placeholder" class="mb-4 text-sm text-dark/60 hidden"></div>
+                    </div>
                     <form id="requestForm" method="POST" action="submit_request.php" class="relative z-10">
                         <div class="space-y-5">
                              <div>
@@ -298,13 +347,26 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                             </div>
                         </div>
                     </form>
+                    
+                </div>
+                <!-- 点歌台关闭占位符（在点歌台隐藏时显示） -->
+                <div id="request-closed-placeholder" class="hidden bg-white rounded-3xl shadow-cute p-4 sticky top-24">
+                    <div class="text-center py-6">
+                        <div class="flex justify-center items-center mb-4"> <!-- 父容器用 flex 居中 -->
+                            <h2 class="text-2xl font-display font-bold text-dark flex place-items-center">
+                                <i class="fa fa-ban text-danger mr-3"></i>点歌已暂停
+                            </h2>
+                        </div>
+                        <!-- <i class="fa fa-ban text-primary/40 text-5xl mb-4"></i> -->
+                        <div id="request-closed-text" class="text-dark/70"></div>
+                    </div>
                 </div>
             </div>
             
             <!-- 右侧：歌曲列表 -->
-            <div class="lg:col-span-2 space-y-8">
+            <div class="lg:col-span-2 space-y-4">
                 <!-- 待播放歌曲 -->
-                <div class="bg-white rounded-3xl shadow-cute p-6">
+                <div class="bg-white rounded-3xl shadow-cute p-6 top-24" id="pending-card">
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-2xl font-display font-bold text-dark flex items-center">
                             <i class="fa fa-list-ul text-primary mr-3"></i>待播清单
@@ -313,6 +375,16 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                             <i class="fa fa-music mr-2"></i><?php echo count($pending_songs); ?> 首
                         </span>
                     </div>
+
+                    <!-- 全局投票状态展示/占位 -->
+                    <div id="vote-status" class="mb-4 text-sm text-dark/60"></div>
+                    <!-- 投票关闭占位符 -->
+                    <!-- <div id="vote-placeholder" class="mb-4 hidden">
+                        <div class="text-center py-8 bg-light/60 rounded-2xl border border-dashed border-gray-200">
+                            <i class="fa fa-clock-o text-primary/40 text-4xl mb-3"></i>
+                            <div id="vote-placeholder-text" class="text-dark/70"></div>
+                        </div>
+                    </div> -->
                     
                     <!-- 新增：待播放列表搜索框 -->
                     <div class="mb-4">
@@ -329,8 +401,8 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                             <?php foreach ($pending_songs as $song): ?>
                                 <div class="bg-light/80 rounded-2xl p-4 card-hover border border-white" data-song-id="<?php echo $song['id']; ?>" data-song-name="<?php echo htmlspecialchars($song['song_name']); ?>" data-artist="<?php echo htmlspecialchars($song['artist']); ?>">
                                      <div class="flex justify-between items-start">
-                                        <div class="flex-1">
-                                            <h3 class="font-bold text-lg text-dark"><?php echo htmlspecialchars($song['song_name']); ?></h3>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="font-bold text-lg text-dark break-words whitespace-normal"><?php echo htmlspecialchars($song['song_name']); ?></h3>
                                             <p class="text-dark/70 text-sm mt-1">
                                                 <i class="fa fa-microphone mr-1 opacity-60"></i><?php echo htmlspecialchars($song['artist']); ?>
                                             </p>
@@ -357,7 +429,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                 </div>
                 
                 <!-- 已播放歌曲 -->
-                <div class="bg-white rounded-3xl shadow-cute p-6 opacity-80">
+                <div class="bg-white rounded-3xl shadow-cute p-6 opacity-80" id="played-card">
                     <div class="flex justify-between items-center mb-6">
                          <h2 class="text-2xl font-display font-bold text-dark/70 flex items-center">
                             <i class="fa fa-history text-dark/50 mr-3"></i>播放历史
@@ -372,8 +444,8 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                             <?php foreach ($played_songs as $song): ?>
                                 <div class="bg-gray-50 rounded-2xl p-4" data-song-id="<?php echo $song['id']; ?>" data-song-name="<?php echo htmlspecialchars($song['song_name']); ?>" data-artist="<?php echo htmlspecialchars($song['artist']); ?>">
                                     <div class="flex justify-between items-center">
-                                        <div class="flex-1">
-                                            <h3 class="font-semibold text-lg text-dark/60"><?php echo htmlspecialchars($song['song_name']); ?></h3>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="font-semibold text-lg text-dark/60 break-words whitespace-normal"><?php echo htmlspecialchars($song['song_name']); ?></h3>
                                             <p class="text-dark/50 text-sm">
                                                 <i class="fa fa-microphone mr-1"></i><?php echo htmlspecialchars($song['artist']); ?>
                                             </p>
@@ -393,6 +465,19 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                         <?php endif; ?>
                     </div>
                 </div>
+
+                <!-- 投票整体关闭占位符（隐藏待播清单和播放历史时显示） -->
+                <div id="vote-closed-all" class="hidden bg-white rounded-3xl shadow-cute p-4">
+                    <div class="text-center py-6">
+                        <div class="flex justify-center items-center mb-4"> <!-- 父容器用 flex 居中 -->
+                            <h2 class="text-2xl font-display font-bold text-dark flex place-items-center">
+                                <i class="fa fa-ban text-danger mr-3"></i>投票已暂停
+                            </h2>
+                        </div>
+                        <!-- <i class="fa fa-ban text-primary/40 text-5xl mb-4"></i> -->
+                        <div id="vote-closed-all-text" class="text-dark/70"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -409,8 +494,290 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
         </div>
         <span id="toastMessage">操作成功</span>
     </div>
+
+    
     
     <script>
+        // ---- 时间状态与次数限制 ----
+        let timeStatus = null;
+        let limits = { request: 1, vote: 3 };
+        let combinedMode = false; // 是否启用“总次数”模式
+    // 计数与上限
+    function getTotalLimit() {
+        const t = timeStatus?.limits?.total;
+        return Number.isFinite(t) ? t : ((limits.request||0) + (limits.vote||0));
+    }
+    function getActionCount() { return parseInt(localStorage.getItem('actionCount') || '0'); }
+    function setActionCount(n) { localStorage.setItem('actionCount', String(Math.max(0, n))); }
+    function getActionLeft() { return Math.max(0, getTotalLimit() - getActionCount()); }
+    function getRequestCount() { return parseInt(localStorage.getItem('requestCount') || '0'); }
+    function setRequestCount(n) { localStorage.setItem('requestCount', String(Math.max(0, n))); }
+    function getVoteCount() { return parseInt(localStorage.getItem('voteCount') || '0'); }
+    function setVoteCount(n) { localStorage.setItem('voteCount', String(Math.max(0, n))); }
+    function getRequestLeft() { return combinedMode ? getActionLeft() : Math.max(0, (limits.request||0) - getRequestCount()); }
+    function getVoteLeft() { return combinedMode ? getActionLeft() : Math.max(0, (limits.vote||0) - getVoteCount()); }
+        // 日期工具：用于每日重置
+        function todayKey() {
+            const d = new Date();
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+        // function ensureDailyReset(showToastMsg = true) {
+        //     try {
+        //         const today = todayKey();
+        //         const voteDate = localStorage.getItem('voteDate');
+        //         const reqDate = localStorage.getItem('requestDate');
+        //         const actionDate = localStorage.getItem('actionDate');
+        //         let changed = false;
+        //         if (voteDate !== today) {
+        //             localStorage.setItem('voteDate', today);
+        //             localStorage.setItem('voteCount', '0');
+        //             localStorage.removeItem('votedSongs');
+        //             changed = true;
+        //         }
+        //         if (reqDate !== today) {
+        //             localStorage.setItem('requestDate', today);
+        //             localStorage.setItem('requestCount', '0');
+        //             changed = true;
+        //         }
+        //         if (actionDate !== today) {
+        //             localStorage.setItem('actionDate', today);
+        //             setActionCount(0);
+        //             changed = true;
+        //         }
+        //         if (changed) {
+        //             if (showToastMsg) showToast('新的一天，点歌/投票次数已重置～');
+        //             try { renderRequestState(); renderVoteState(); } catch(e){}
+        //         }
+        //     } catch (e) { /* ignore */ }
+        // }
+    function loadTimeStatus() {
+            return fetch('time_config.php?action=status').then(r=>r.json()).then(d => {
+                if (!d.success) return;
+                const prev = timeStatus;
+                timeStatus = d.data;
+                limits = timeStatus.limits || limits;
+        combinedMode = Number.isFinite(timeStatus?.limits?.total);
+                // 读取上次（持久化）开放状态，用于解决“用户在开放后才进入页面，未触发重置”的问题
+                const lastRequestOpenLS = localStorage.getItem('lastRequestOpen'); // '1' | '0' | null
+                const lastVoteOpenLS = localStorage.getItem('lastVoteOpen');     // '1' | '0' | null
+                const nowRequestOpen = !!(timeStatus?.request?.open);
+                const nowVoteOpen = !!(timeStatus?.vote?.open);
+                // 使用“周期令牌”识别开窗变化（open->close->open）
+                const lastRequestToken = localStorage.getItem('requestToken');
+                const lastVoteToken = localStorage.getItem('voteToken');
+                const requestTokenNow = nowRequestOpen
+                    ? `open:${timeStatus?.request?.next_close || ''}`
+                    : `closed:${timeStatus?.request?.next_open || ''}`;
+                const voteTokenNow = nowVoteOpen
+                    ? `open:${timeStatus?.vote?.next_close || ''}`
+                    : `closed:${timeStatus?.vote?.next_open || ''}`;
+                // 首次初始化本地计数
+                if (!prev) {
+                    if (!localStorage.getItem('requestCount')) localStorage.setItem('requestCount', '0');
+                    if (!localStorage.getItem('voteCount')) localStorage.setItem('voteCount', '0');
+                    if (!localStorage.getItem('voteDate')) localStorage.setItem('voteDate', todayKey());
+                    if (!localStorage.getItem('requestDate')) localStorage.setItem('requestDate', todayKey());
+                    if (!localStorage.getItem('actionDate')) localStorage.setItem('actionDate', todayKey());
+                    if (!localStorage.getItem('actionCount')) setActionCount(0);
+                    // 若本地已有“上次状态”为关闭，而当前为开启，视为跨会话的关闭->开启，执行一次重置
+                    const reopenedByPersist = (
+                        (lastRequestOpenLS === '0' && nowRequestOpen) ||
+                        (lastVoteOpenLS === '0' && nowVoteOpen)
+                    );
+                    // 若本地上次令牌存在，且本次为 open，且令牌变化（或之前为 closed），也视为进入了新的开放窗口
+                    const reopenedByToken = (
+                        (lastRequestToken && requestTokenNow.startsWith('open:') && lastRequestToken !== requestTokenNow) ||
+                        (lastVoteToken && voteTokenNow.startsWith('open:') && lastVoteToken !== voteTokenNow) ||
+                        (lastRequestToken && lastRequestToken.startsWith('closed:') && requestTokenNow.startsWith('open:')) ||
+                        (lastVoteToken && lastVoteToken.startsWith('closed:') && voteTokenNow.startsWith('open:'))
+                    );
+                    if (reopenedByPersist || reopenedByToken) {
+                        localStorage.removeItem('votedSongs');
+                        localStorage.setItem('requestCount', '0');
+                        localStorage.setItem('voteCount', '0');
+                        setActionCount(0);
+                        try { showToast('功能已开放，次数已刷新！'); } catch(e){}
+                    }
+                }
+                // 若从关闭->开启，刷新本地次数与投票记录
+                if (prev) {
+                    const reopenedRequest = !prev.request.open && timeStatus.request.open;
+                    const reopenedVote = !prev.vote.open && timeStatus.vote.open;
+                    if (reopenedRequest || reopenedVote) {
+                        localStorage.removeItem('votedSongs');
+                        localStorage.setItem('requestCount', '0');
+                        localStorage.setItem('voteCount', '0');
+                        setActionCount(0);
+                        showToast('功能已开放，次数已刷新！');
+                    }
+                }
+                // 更新持久化的“上次开放状态”标记（用于跨会话识别）
+                try {
+                    localStorage.setItem('lastRequestOpen', nowRequestOpen ? '1' : '0');
+                    localStorage.setItem('lastVoteOpen', nowVoteOpen ? '1' : '0');
+                    localStorage.setItem('requestToken', requestTokenNow);
+                    localStorage.setItem('voteToken', voteTokenNow);
+                } catch(e){}
+                // 检测后端 reset_seq（强制刷新令牌）是否变化，变化则清空本地计数
+                try {
+                    const lastResetSeqStr = localStorage.getItem('lastResetSeq');
+                    const hasInitResetSeq = lastResetSeqStr !== null; // 首次访问时为 null
+                    const lastResetSeq = parseInt(hasInitResetSeq ? lastResetSeqStr : '0');
+                    const nowResetSeq = parseInt(timeStatus?.reset_seq || 0);
+                    if (Number.isFinite(nowResetSeq)) {
+                        if (!hasInitResetSeq) {
+                            // 首次访问：只初始化，不提示、不清空
+                            localStorage.setItem('lastResetSeq', String(nowResetSeq));
+                        } else if (nowResetSeq > lastResetSeq) {
+                            // 非首次，且服务端强制刷新序号递增：清空并提示
+                            localStorage.removeItem('votedSongs');
+                            localStorage.setItem('requestCount', '0');
+                            localStorage.setItem('voteCount', '0');
+                            setActionCount(0);
+                            localStorage.setItem('lastResetSeq', String(nowResetSeq));
+                            showToast('次数已刷新（管理员触发）');
+                        }
+                    }
+                } catch(e) {}
+                // 每日重置（防止长时间打开页面跨天不刷新）
+                // ensureDailyReset(false);
+                renderRequestState();
+                renderVoteState();
+            }).catch(()=>{});
+        }
+
+        function formatCountdown(t) { // ISO string
+            if (!t) return '';
+            const end = new Date(t).getTime();
+            const now = Date.now();
+            let s = Math.max(0, Math.floor((end - now) / 1000));
+            const h = Math.floor(s/3600); s%=3600;
+            const m = Math.floor(s/60); s%=60;
+            return `${h}小时${m}分${s}秒`;
+        }
+
+        let requestTimer = null, voteTimer = null;
+        function renderRequestState() {
+            const info = timeStatus?.request || { open: true };
+            const statusEl = document.getElementById('request-status');
+            const placeholder = document.getElementById('request-placeholder');
+            const submitBtn = document.getElementById('submit');
+            const form = document.getElementById('requestForm');
+            const requestCard = document.getElementById('request-card');
+            const requestClosed = document.getElementById('request-closed-placeholder');
+            const requestClosedText = document.getElementById('request-closed-text');
+            const left = getRequestLeft();
+            const isManualClosed = (timeStatus?.mode === 'manual');
+            if (info.open) {
+                form?.classList.remove('opacity-60');
+                if (submitBtn) {
+                    // 使用视觉禁用并打标，保留点击以便弹 Toast
+                    if (left <= 0) {
+                        // submitBtn.classList.add('cursor-not-allowed','opacity-50');
+                        submitBtn.dataset.noTimes = '1';
+                    } else {
+                        // submitBtn.classList.remove('cursor-not-allowed','opacity-50');
+                        delete submitBtn.dataset.noTimes;
+                    }
+                    // 确保不是永久禁用（仅在提交过程中临时禁用）
+                    submitBtn.disabled = false;
+                }
+                if (statusEl) statusEl.textContent = `可点歌 · 剩余${left}次${info.next_close? ' · 结束倒计时：'+formatCountdown(info.next_close): ''}`;
+                placeholder?.classList.add('hidden');
+                // 显示点歌卡片，隐藏占位卡片
+                if (requestCard) requestCard.classList.remove('hidden');
+                if (requestClosed) requestClosed.classList.add('hidden');
+                if (requestTimer) clearInterval(requestTimer);
+                if (info.next_close) requestTimer = setInterval(()=>{ if(statusEl) statusEl.textContent = `可点歌 · 剩余${getRequestLeft()}次 · 结束倒计时：${formatCountdown(info.next_close)}`; },1000);
+            } else {
+                if (submitBtn) {
+                    submitBtn.classList.add('cursor-not-allowed','opacity-50');
+                    submitBtn.dataset.closed = '1';
+                    // 保持可点击以触发提示
+                    submitBtn.disabled = false;
+                }
+                form?.classList.add('opacity-60');
+                const html = info.next_open && !isManualClosed 
+                    ? `不可点歌 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span>` 
+                    : `不可点歌 · <span class=\"text-danger\">已手动关闭</span>`;
+                if (statusEl) statusEl.innerHTML = html;
+                if (placeholder) { placeholder.innerHTML = html; placeholder.classList.remove('hidden'); }
+                // 隐藏点歌卡片，显示占位卡片并复用文案
+                if (requestCard) requestCard.classList.add('hidden');
+                if (requestClosed) {
+                    if (requestClosedText) requestClosedText.innerHTML = html;
+                    requestClosed.classList.remove('hidden');
+                }
+                if (requestTimer) clearInterval(requestTimer);
+            }
+            
+        }
+
+        function renderVoteState() {
+            const info = timeStatus?.vote || { open: true };
+            const left = getVoteLeft();
+            const votedSongs = JSON.parse(localStorage.getItem('votedSongs') || '[]');
+            const votePlaceholder = document.getElementById('vote-placeholder');
+            const votePlaceholderText = document.getElementById('vote-placeholder-text');
+            const pendingContainer = document.getElementById('pendingSongsContainer');
+            const pendingSearchWrap = document.getElementById('pendingSongSearch')?.closest('.mb-4');
+            const pendingCard = document.getElementById('pending-card');
+            const playedCard = document.getElementById('played-card');
+            const voteClosedAll = document.getElementById('vote-closed-all');
+            const voteClosedAllText = document.getElementById('vote-closed-all-text');
+            document.querySelectorAll('.vote-btn').forEach(btn => {
+                const sid = btn.getAttribute('data-id');
+                const isVoted = votedSongs.includes(sid);
+                // 可点击：在开放期内，且（剩余>0 或 已投该歌曲以便取消）
+                // if (info.open && (left > 0 || isVoted)) {
+                //     btn.classList.remove('cursor-not-allowed','opacity-50');
+                // } else {
+                //     btn.classList.add('cursor-not-allowed','opacity-50');
+                // }
+                if (isVoted) btn.classList.add('cursor-not-allowed','opacity-50'); 
+                else btn.classList.remove('cursor-not-allowed','opacity-50');
+            });
+            const voteStatusEl = document.getElementById('vote-status');
+            const isManualClosed = (timeStatus?.mode === 'manual');
+            if (voteStatusEl) {
+                if (info.open) {
+                    voteStatusEl.textContent = `可投票 · 剩余${left}次${info.next_close? ' · 结束倒计时：'+formatCountdown(info.next_close): ''}`;
+                    // 显示列表，隐藏占位
+                    if (pendingCard) pendingCard.classList.remove('hidden');
+                    if (playedCard) playedCard.classList.remove('hidden');
+                    if (pendingContainer) pendingContainer.classList.remove('hidden');
+                    if (pendingSearchWrap) pendingSearchWrap.classList.remove('hidden');
+                    if (votePlaceholder) votePlaceholder.classList.add('hidden');
+                    if (voteClosedAll) voteClosedAll.classList.add('hidden');
+                } else {
+                    const html = info.next_open && !isManualClosed ? `不可投票 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span>` : `不可投票 · <span class=\"text-danger\">已手动关闭</span>`;
+                    voteStatusEl.innerHTML = html;
+                    // 隐藏两块卡片（待播清单 + 播放历史），显示全局占位
+                    if (pendingCard) pendingCard.classList.add('hidden');
+                    if (playedCard) playedCard.classList.add('hidden');
+                    if (voteClosedAll) {
+                        if (voteClosedAllText) voteClosedAllText.innerHTML = html;
+                        voteClosedAll.classList.remove('hidden');
+                    }
+                }
+            }
+            if (voteTimer) clearInterval(voteTimer);
+            if (info.open && info.next_close) {
+                // 如需展示投票倒计时，可在此刷新 voteStatus 文本
+                voteTimer = setInterval(()=>{
+                    const l = getVoteLeft();
+                    if (document.getElementById('vote-status') && timeStatus?.vote?.open) {
+                        document.getElementById('vote-status').textContent = `可投票 · 剩余${l}次${timeStatus.vote.next_close? ' · 结束倒计时：'+formatCountdown(timeStatus.vote.next_close): ''}`;
+                    }
+                }, 1000);
+            }
+            
+        }
+
+        
         // --- MODAL CONTROL ---
         function setupModal(buttonId, modalId, closeButtonIds) {
             const button = document.getElementById(buttonId);
@@ -505,10 +872,14 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
         }
 
         // // --- VOTE ACTION ---
-        // 投票功能（支持点赞/取消点赞切换）
-        document.querySelectorAll('.vote-btn').forEach(btn => {
+    // 投票功能（支持点赞/取消点赞切换 + 次数限制）
+    document.querySelectorAll('.vote-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const songId = this.getAttribute('data-id');
+    // 时间与次数限制（统一配额）
+    if (!timeStatus || !timeStatus.vote?.open) { showToast('当前不在投票时间哦', false); return; }
+    let actionCount = getActionCount();
+    const leftNow = combinedMode ? getActionLeft() : getVoteLeft();
                 const votedSongs = JSON.parse(localStorage.getItem('votedSongs') || '[]');
                 const isVoted = votedSongs.includes(songId); // 判断是否已点赞
                 
@@ -526,9 +897,16 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                                 const index = votedSongs.indexOf(songId);
                                 votedSongs.splice(index, 1);
                                 localStorage.setItem('votedSongs', JSON.stringify(votedSongs));
-                                // 恢复按钮状态
-                                this.classList.remove('opacity-50', 'cursor-not-allowed', 'text-secondary');
-                                this.classList.add('text-secondary');
+                                // 恢复按钮状态与次数回退
+                this.classList.remove('opacity-50', 'cursor-not-allowed');
+                if (combinedMode) {
+                    actionCount = Math.max(0, actionCount - 1);
+                    setActionCount(actionCount);
+                } else {
+                    setVoteCount(Math.max(0, getVoteCount() - 1));
+                }
+                                renderVoteState();
+                                renderRequestState();
                             } else {
                                 showToast('取消点赞失败', false);
                             }
@@ -537,6 +915,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                             showToast('网络出错了~', false);
                         });
                 } else {
+        if (leftNow <= 0) { showToast('今天的次数用完啦', false); return; }
                     // 未点赞 → 点赞
                     fetch(`index.php?vote=${songId}&action=add`)
                         .then(response => {
@@ -550,7 +929,16 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                                 votedSongs.push(songId);
                                 localStorage.setItem('votedSongs', JSON.stringify(votedSongs));
                                 // 禁用按钮（标记已点赞）
+                                // this.disabled = true;
                                 this.classList.add('opacity-50', 'cursor-not-allowed');
+                                if (combinedMode) {
+                                    actionCount = actionCount + 1;
+                                    setActionCount(actionCount);
+                                } else {
+                                    setVoteCount(getVoteCount() + 1);
+                                }
+                                renderVoteState();
+                                renderRequestState();
                             } else {
                                 showToast('投票失败了', false);
                             }
@@ -632,11 +1020,36 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
         // });
         
         // --- FORM SUBMISSIONS ---
+        // 点歌按钮点击前置提示（用于在按钮看似可点但无次数/未开放时提示）
+        (function(){
+            const submitBtn = document.getElementById('submit');
+            if (!submitBtn) return;
+            submitBtn.addEventListener('click', (ev) => {
+                // 提交监听中也会做拦截；这里主要保证立即提示
+                if (!timeStatus) return; // 待首次加载后由提交监听处理
+                if (submitBtn.dataset.closed === '1') {
+                    ev.preventDefault();
+                    showToast('当前不在点歌时间哦', false);
+                    return;
+                }
+                if (submitBtn.dataset.noTimes === '1') {
+                    ev.preventDefault();
+                    showToast('今天的次数用完啦', false);
+                    return;
+                }
+            });
+        })();
+        
     	document.getElementById('requestForm')?.addEventListener('submit', (e) => {
         	const submitBtn = document.getElementById('submit');
         
-        	// 如果按钮不存在或已经被禁用，则直接返回
-        	if (!submitBtn || submitBtn.disabled) return;
+        	// 如果按钮不存在则直接返回
+        	if (!submitBtn) return;
+
+    // 时间与次数限制（统一配额）
+    if (!timeStatus || !timeStatus.request?.open) { e.preventDefault(); showToast('当前不在点歌时间哦', false); return; }
+    const leftNowReq = combinedMode ? getActionLeft() : getRequestLeft();
+    if (leftNowReq <= 0) { e.preventDefault(); showToast('今天的次数用完啦', false); return; }
         
         	e.preventDefault();
         	const form = e.target;
@@ -653,6 +1066,13 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
             	.then(data => {
                 	if (data.success) {
                     	showToast(data.message || '点歌成功！');
+                        // 次数 +1（统一或分别）
+                        if (combinedMode) {
+                            setActionCount(getActionCount() + 1);
+                        } else {
+                            setRequestCount(getRequestCount() + 1);
+                        }
+                        renderRequestState();
                     	setTimeout(() => location.reload(), 1500);
                	} else {
                     	showToast(data.message || '点歌失败了', false);
@@ -704,18 +1124,44 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
             songs.forEach(song => {
                 const songItem = document.createElement('div');
                 songItem.className = 'p-3 md:p-4 border-b border-gray-100 hover:bg-light cursor-pointer transition-colors flex items-center space-x-4';
-                songItem.innerHTML = `
-                    <img src="${song.cover || `https://via.placeholder.com/48/a78bfa/ffffff?text=${song.song.charAt(0)}`}" alt="${song.song}" class="w-12 h-12 object-cover rounded-lg">
-                    <div class="flex-1 min-w-0">
-                        <h4 class="font-bold text-dark truncate">${song.song}</h4>
-                        <p class="text-dark/60 text-sm"><i class="fa fa-microphone mr-1"></i>${song.singer}</p>
-                    </div>
-                    <button class="select-song-btn px-4 py-2 bg-primary/10 text-primary rounded-full text-sm hover:bg-primary/20 transition-all" 
-                            data-name="${song.song}" data-artist="${song.singer}">
-                        选择
-                    </button>
-                `;
-                
+
+                // 安全构建封面
+                const img = document.createElement('img');
+                img.className = 'w-12 h-12 object-cover rounded-lg';
+                const fallback = 'https://via.placeholder.com/48/a78bfa/ffffff?text=♪';
+                try { img.src = (song && typeof song.cover === 'string' && song.cover.startsWith('http')) ? song.cover : fallback; } catch(e) { img.src = fallback; }
+                img.alt = String(song && song.song ? song.song : 'cover');
+
+                // 文本容器
+                const info = document.createElement('div');
+                info.className = 'flex-1 min-w-0';
+
+                const title = document.createElement('h4');
+                title.className = 'font-bold text-dark truncate';
+                title.textContent = String(song && song.song ? song.song : '');
+
+                const singerP = document.createElement('p');
+                singerP.className = 'text-dark/60 text-sm flex items-center';
+                const mic = document.createElement('i');
+                mic.className = 'fa fa-microphone mr-1';
+                const singerText = document.createTextNode(String(song && song.singer ? song.singer : ''));
+                singerP.appendChild(mic);
+                singerP.appendChild(singerText);
+
+                info.appendChild(title);
+                info.appendChild(singerP);
+
+                // 选择按钮
+                const btn = document.createElement('button');
+                btn.className = 'select-song-btn px-4 py-2 bg-primary/10 text-primary rounded-full text-sm hover:bg-primary/20 transition-all';
+                btn.textContent = '选择';
+                // 用 dataset 赋值，避免拼接 HTML
+                if (song && song.song) btn.dataset.name = String(song.song);
+                if (song && song.singer) btn.dataset.artist = String(song.singer);
+
+                songItem.appendChild(img);
+                songItem.appendChild(info);
+                songItem.appendChild(btn);
                 searchResultsEl.appendChild(songItem);
             });
 
@@ -832,15 +1278,22 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
             if (!localStorage.getItem('ruleRead') && ruleBtn) {
                 setTimeout(() => ruleBtn.click(), 1000);
             }
+            // 每日重置（初始化 & 定时巡检）
+            // ensureDailyReset(false);
+            // setInterval(() => ensureDailyReset(false), 60 * 1000);
+            // 拉取时间配置
+            loadTimeStatus();
             // 初始化投票按钮状态（支持取消点赞）
             const votedSongs = JSON.parse(localStorage.getItem('votedSongs') || '[]');
             votedSongs.forEach(songId => {
                 const btn = document.querySelector(`.vote-btn[data-id="${songId}"]`);
                 if (btn) {
                     // 已点赞的按钮添加特殊样式（可选，如变色）
-                    btn.classList.add('opacity-50', 'cursor-not-allowed', 'text-secondary');
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
                 }
             });
+            // 定时刷新时间状态
+            setInterval(loadTimeStatus, 30000);
         });
         const confirmBtn = document.getElementById('confirmRuleBtn');
         if (confirmBtn) {

@@ -69,14 +69,42 @@ require_once 'db_connect.php';
             // 出场
             setTimeout(() => { div.style.opacity = '0'; div.style.transform = 'translateY(8px)'; }, timeout - 300);
             setTimeout(() => { try { container.removeChild(div); } catch(e){} }, timeout);
+        }
 
-            // 自动刷新当前面板（如果操作成功）
-            try {
-                if (success && typeof loadSection === 'function' && currentSection) {
-                    // 小延迟以便用户能看到提示
-                    setTimeout(() => { try { loadSection(currentSection, true); } catch(e){} }, 600);
-                }
-            } catch (e) { /* ignore */ }
+        // 交互式确认 toast（返回 Promise<boolean>）
+        function showConfirmToast(message = '确认执行该操作？', {
+            confirmText = '确认', cancelText = '取消', tone = 'warning', timeout = 8000
+        } = {}) {
+            const container = document.getElementById('toast-container');
+            if (!container) return Promise.resolve(false);
+            return new Promise(resolve => {
+                const wrap = document.createElement('div');
+                const toneClass = tone === 'danger' ? 'bg-red-50 text-red-800 border-red-200' : (tone === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-yellow-50 text-yellow-800 border-yellow-200');
+                wrap.className = `px-4 py-3 rounded-lg shadow-md mb-2 text-sm border ${toneClass}`;
+                wrap.style.display = 'flex';
+                wrap.style.alignItems = 'center';
+                wrap.style.justifyContent = 'space-between';
+                wrap.style.gap = '12px';
+                const span = document.createElement('span');
+                span.textContent = message;
+                const btns = document.createElement('div');
+                btns.style.display = 'flex';
+                btns.style.gap = '8px';
+                const ok = document.createElement('button');
+                ok.textContent = confirmText;
+                ok.className = 'px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600';
+                const cancel = document.createElement('button');
+                cancel.textContent = cancelText;
+                cancel.className = 'px-3 py-1 rounded bg-gray-200 text-gray-800 hover:bg-gray-300';
+                btns.appendChild(cancel); btns.appendChild(ok);
+                wrap.appendChild(span); wrap.appendChild(btns);
+                container.appendChild(wrap);
+                let settled = false;
+                const done = (val) => { if (settled) return; settled = true; try { container.removeChild(wrap); } catch(e){} resolve(val); };
+                ok.addEventListener('click', () => done(true));
+                cancel.addEventListener('click', () => done(false));
+                setTimeout(() => done(false), timeout);
+            });
         }
         tailwind.config = {
             theme: {
@@ -156,6 +184,9 @@ require_once 'db_connect.php';
                         </button>
                         <button class="admin-tab w-full text-left px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 flex items-center" data-target="rule-management">
                             <i class="fa fa-book mr-2"></i>点歌规则管理
+                        </button>
+                        <button class="admin-tab w-full text-left px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 flex items-center" data-target="time-management">
+                            <i class="fa fa-clock-o mr-2"></i>点歌时间
                         </button>
                         <?php if ($admin_role === 'super_admin'): ?>
                         <button class="admin-tab w-full text-left px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 flex items-center" data-target="log-management">
@@ -358,11 +389,17 @@ require_once 'db_connect.php';
                                     <td class="px-3 py-2 whitespace-normal break-words">\
                                         <div class=\"text-sm text-gray-900\">${escapeHtml(song.class)}</div>\
                                     </td>\
+                                    <td class=\"px-3 py-2 whitespace-normal break-words\">\
+                                        <div class=\"text-xs text-gray-500 song-time\" title=\"提交时间\">${escapeHtml(song.created_at || '')}</div>\
+                                    </td>\
                                     <td class="px-3 py-2 whitespace-normal break-words">\
                                         <div class=\"text-sm text-gray-900 flex items-center\">\
                                             <i class=\"fa fa-thumbs-up text-primary mr-1\"></i>\
                                             <span>${song.votes}</span>\
                                         </div>\
+                                    </td>\
+                                    <td class=\"px-3 py-2 whitespace-normal break-words\">\
+                                        <div class=\"text-sm text-gray-900 song-message max-w-xs truncate\" title=\"${escapeHtml(song.message || '')}\">${escapeHtml(song.message || '')}</div>\
                                     </td>\
                                     <td class="px-3 py-2 whitespace-normal break-words">\
                                         ${Number(song.played) ? '<span class=\"px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800\">已播放</span>' : '<span class=\"px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800\">待播放</span>'}\
@@ -391,6 +428,8 @@ require_once 'db_connect.php';
                                                     <div class=\"text-sm text-gray-900 max-h-12 overflow-y-auto\">点歌人：${escapeHtml(song.requestor)}</div>\
                                                     <div class=\"text-sm text-gray-900 max-h-12 overflow-y-auto\">班级：${escapeHtml(song.class)}</div>\
                                                 </div>\
+                                                <div class=\"text-xs text-gray-500 mt-2 song-time\">时间：${escapeHtml(song.created_at || '')}</div>\
+                                                <div class=\"text-sm text-gray-900 mt-1 song-message\">留言：${escapeHtml(song.message || '')}</div>\
                                             </div>\
                                         </div>\
                                         <div class=\"mt-3 flex items-center justify-between\">\
@@ -424,14 +463,14 @@ require_once 'db_connect.php';
                     fetchFiltered();
                 }
 
-                // 通知与规则表单提交
+                // 通知与规则表单提交（提交后使用 toast 提示，不再刷新面板）
                 if (section === 'announcement-management') {
                     document.getElementById('announcement-form')?.addEventListener('submit', function(e) {
                         e.preventDefault();
                         const formData = new FormData(this);
                         fetch('update_announcement.php', { method: 'POST', body: formData })
                             .then(response => response.json())
-                            .then(data => { showSuccessToast(data.message, data.success); if (data.success) setTimeout(() => loadSection('announcement-management', true), 600); });
+                            .then(data => { showSuccessToast(data.message || (data.success ? '通知已保存' : '保存失败'), data.success); });
                     });
                 }
                 if (section === 'rule-management') {
@@ -440,11 +479,396 @@ require_once 'db_connect.php';
                         const formData = new FormData(this);
                         fetch('update_rule.php', { method: 'POST', body: formData })
                             .then(response => response.json())
-                            .then(data => { showSuccessToast(data.message, data.success); if (data.success) setTimeout(() => loadSection('rule-management', true), 600); });
+                            .then(data => { showSuccessToast(data.message || (data.success ? '规则已保存' : '保存失败'), data.success); });
                     });
                 }
+                // 时间管理：片段通过 innerHTML 注入，内联 <script> 不会自动执行，这里主动绑定事件
+                if (section === 'time-management') {
+                    const settingsForm = document.getElementById('time-settings-form');
+                    if (settingsForm) {
+                        settingsForm.addEventListener('submit', function(e) {
+                            e.preventDefault();
+                            const fd = new FormData(this);
+                            // 未勾选的 checkbox 不会提交，确保有值
+                            if (!fd.has('manual_request_enabled')) fd.set('manual_request_enabled', '0');
+                            if (!fd.has('manual_vote_enabled')) fd.set('manual_vote_enabled', '0');
+                            fd.set('action','update_settings');
+                            fetch('time_config.php', { method: 'POST', body: fd })
+                                .then(r => r.json())
+                                .then(d => { if (d.success) showSuccessToast('设置已保存'); else showSuccessToast(d.message||'保存失败', false); })
+                                .catch(() => showSuccessToast('网络错误', false));
+                        });
+                    }
 
-                // 日志表无需额外绑定
+                    // 绑定“强制刷新用户本地次数”按钮
+                    const forceBtn = document.getElementById('force-reset-btn');
+                    if (forceBtn) {
+                        forceBtn.addEventListener('click', async function() {
+                            const btn = this;
+                            const ok = await showConfirmToast('将强制所有在线/离线用户在下一次状态刷新时清空本地“已点赞”和次数计数，确定执行？', { confirmText: '执行', cancelText: '取消', tone: 'warning' });
+                            if (!ok) return;
+                            btn.disabled = true; btn.classList.add('opacity-70', 'cursor-not-allowed');
+                            try {
+                                const fd = new FormData();
+                                fd.set('action','force_reset');
+                                const res = await fetch('time_config.php', { method: 'POST', body: fd });
+                                const d = await res.json();
+                                if (d && d.success) {
+                                    const seq = d.data?.reset_seq;
+                                    showSuccessToast(seq !== undefined ? `已触发强制刷新（序列号=${seq}）` : '已触发强制刷新');
+                                } else {
+                                    showSuccessToast((d && d.message) ? d.message : '执行失败', false);
+                                }
+                            } catch (e) {
+                                showSuccessToast('网络错误', false);
+                            } finally {
+                                btn.disabled = false; btn.classList.remove('opacity-70', 'cursor-not-allowed');
+                            }
+                        });
+                    }
+
+                    const addRuleForm = document.getElementById('add-rule-form');
+                    if (addRuleForm) {
+                        addRuleForm.addEventListener('submit', function(e) {
+                            e.preventDefault();
+                            const fd = new FormData(this);
+                            fd.set('action','add_rule');
+                            fetch('time_config.php', { method: 'POST', body: fd })
+                                .then(r => r.json())
+                                .then(d => {
+                                    if (d.success) {
+                                        showSuccessToast('已新增规则');
+                                        try {
+                                            const id = d.data?.id || d.id || null;
+                                            const tbody = document.getElementById('rule-table-body');
+                                            if (id && tbody) {
+                                                const tr = document.createElement('tr');
+                                                const feature = fd.get('feature') || 'both';
+                                                const type = fd.get('type') || '1';
+                                                const sw = fd.get('start_weekday') || '';
+                                                const ew = fd.get('end_weekday') || '';
+                                                const st = fd.get('start_time') || '';
+                                                const et = fd.get('end_time') || '';
+                                                const dsw = (type === '1') ? '/' : (sw || '/');
+                                                const dew = (type === '1') ? '/' : (ew || '/');
+                                                const dst = (type === '3') ? '/' : (st || '/');
+                                                const det = (type === '3') ? '/' : (et || '/');
+                                                const desc = (fd.get('description') || '').toString();
+                                                tr.innerHTML = `
+                                                    <td class="px-2 py-2">${id}</td>
+                                                    <td class="px-2 py-2">${escapeHtml(feature)}</td>
+                                                    <td class="px-2 py-2">${escapeHtml(type)}</td>
+                                                    <td class="px-2 py-2">${escapeHtml(String(dsw))}</td>
+                                                    <td class="px-2 py-2">${escapeHtml(String(dew))}</td>
+                                                    <td class="px-2 py-2">${escapeHtml(String(dst))}</td>
+                                                    <td class="px-2 py-2">${escapeHtml(String(det))}</td>
+                                                    <td class="px-2 py-2"><span class="text-green-600">启用</span></td>
+                                                    <td class="px-2 py-2 max-w-xs truncate" title="${escapeHtml(desc)}">${escapeHtml(desc)}</td>
+                                                    <td class="px-2 py-2 whitespace-nowrap">
+                                                        <div class="flex items-center gap-2 flex-nowrap">
+                                                            <button class="edit-rule px-2 py-1 text-xs rounded bg-purple-50 text-purple-600" data-id="${id}" data-feature="${escapeHtml(feature)}" data-type="${escapeHtml(type)}" data-sw="${escapeHtml(sw)}" data-ew="${escapeHtml(ew)}" data-st="${escapeHtml(st)}" data-et="${escapeHtml(et)}" data-desc="${escapeHtml(desc)}">编辑</button>
+                                                            <button class="toggle-rule px-2 py-1 text-xs rounded bg-blue-50 text-blue-600" data-id="${id}" data-active="0">停用</button>
+                                                            <button class="delete-rule px-2 py-1 text-xs rounded bg-red-50 text-red-600" data-id="${id}">删除</button>
+                                                        </div>
+                                                    </td>`;
+                                                tbody.appendChild(tr);
+                                                // 绑定新按钮事件
+                                                const editBtn = tr.querySelector('.edit-rule');
+                                                const toggleBtn = tr.querySelector('.toggle-rule');
+                                                const deleteBtn = tr.querySelector('.delete-rule');
+                                                if (editBtn) bindEditRule(editBtn);
+                                                if (toggleBtn) bindToggleRule(toggleBtn);
+                                                if (deleteBtn) bindDeleteRule(deleteBtn);
+                                                // 重置表单
+                                                try { (this instanceof HTMLFormElement) && this.reset(); } catch(e){}
+                                                // 重置后刷新一次 UI（根据默认类型）
+                                                try { if (typeof applyTypeDrivenUI === 'function') applyTypeDrivenUI(addRuleForm); } catch(e){}
+                                            }
+                                        } catch(e) { /* ignore */ }
+                                    } else { showSuccessToast(d.message||'操作失败', false); }
+                                })
+                                .catch(() => showSuccessToast('网络错误', false));
+                        });
+                    }
+
+                    // 表单动态显隐/必填：根据类型控制 周几 与 时间 字段
+                    const applyTypeDrivenUI = (form) => {
+                        if (!form) return;
+                        const typeSel = form.querySelector('[name="type"]');
+                        if (!typeSel) return;
+                        const t = String(typeSel.value || '1');
+                        const sw = form.querySelector('[name="start_weekday"]');
+                        const ew = form.querySelector('[name="end_weekday"]');
+                        const st = form.querySelector('[name="start_time"]');
+                        const et = form.querySelector('[name="end_time"]');
+                        const swWrap = sw ? sw.closest('div') : null;
+                        const ewWrap = ew ? ew.closest('div') : null;
+                        const stWrap = st ? st.closest('div') : null;
+                        const etWrap = et ? et.closest('div') : null;
+
+                        const showWeekdays = (t === '2' || t === '3');
+                        const showTimes = (t === '1' || t === '2');
+
+                        const setWrap = (wrap, show) => {
+                            if (!wrap) return;
+                            wrap.style.display = show ? '' : 'none';
+                        };
+                        const setField = (el, enabled, required) => {
+                            if (!el) return;
+                            el.disabled = !enabled;
+                            if (required) el.setAttribute('required', 'required'); else el.removeAttribute('required');
+                            if (!enabled) {
+                                // 禁用时用 '/' 占位，避免视觉空白
+                                el.value = '/';
+                            } else {
+                                // 重新启用时清理占位符
+                                if (el.value === '/') el.value = '';
+                            }
+                        };
+
+                        setWrap(swWrap, showWeekdays);
+                        setWrap(ewWrap, showWeekdays);
+                        setWrap(stWrap, showTimes);
+                        setWrap(etWrap, showTimes);
+
+                        // 必填策略：
+                        // - 类型1（每日固定时间）：仅时间必填
+                        // - 类型2（每周跨天）：周几与时间均必填
+                        // - 类型3（每周周几范围）：仅周几必填，时间不需要
+                        if (t === '1') {
+                            setField(sw, false, false);
+                            setField(ew, false, false);
+                            setField(st, true, true);
+                            setField(et, true, true);
+                        } else if (t === '2') {
+                            setField(sw, true, true);
+                            setField(ew, true, true);
+                            setField(st, true, true);
+                            setField(et, true, true);
+                        } else { // '3'
+                            setField(sw, true, true);
+                            setField(ew, true, true);
+                            setField(st, false, false);
+                            setField(et, false, false);
+                        }
+                    };
+
+                    // 监听 add 表单类型切换
+                    if (addRuleForm) {
+                        const typeSel = addRuleForm.querySelector('[name="type"]');
+                        if (typeSel) {
+                            typeSel.addEventListener('change', () => applyTypeDrivenUI(addRuleForm));
+                        }
+                        // 初始应用一次
+                        applyTypeDrivenUI(addRuleForm);
+                    }
+
+                    const bindToggleRule = (btn) => {
+                        btn.addEventListener('click', () => {
+                            const fd = new FormData();
+                            fd.set('action','toggle_rule');
+                            const id = btn.getAttribute('data-id');
+                            const nextActive = parseInt(btn.getAttribute('data-active') || '0', 10) || 0; // 0/1
+                            fd.set('id', id);
+                            fd.set('active', String(nextActive));
+                            fetch('time_config.php', { method: 'POST', body: fd })
+                                .then(r => r.json())
+                                .then(d => {
+                                    if (d.success) {
+                                        const tr = btn.closest('tr');
+                                        if (tr) {
+                                            const statusTd = tr.querySelector('td:nth-child(8)');
+                                            if (statusTd) statusTd.innerHTML = nextActive ? '<span class="text-green-600">启用</span>' : '<span class="text-gray-400">停用</span>';
+                                            btn.textContent = nextActive ? '停用' : '启用';
+                                            btn.setAttribute('data-active', nextActive ? '0' : '1');
+                                        }
+                                        showSuccessToast('已更新');
+                                    } else showSuccessToast(d.message||'失败', false);
+                                })
+                                .catch(() => showSuccessToast('网络错误', false));
+                        });
+                    };
+                    const bindDeleteRule = (btn) => {
+                        btn.addEventListener('click', async () => {
+                            const ok = await showConfirmToast('确定删除该规则？此操作不可恢复。', { confirmText: '删除', cancelText: '取消', tone: 'danger' });
+                            if (!ok) return;
+                            const fd = new FormData();
+                            fd.set('action','delete_rule');
+                            fd.set('id', btn.getAttribute('data-id'));
+                            fetch('time_config.php', { method: 'POST', body: fd })
+                                .then(r => r.json())
+                                .then(d => { if (d.success) { const tr = btn.closest('tr'); if (tr) tr.remove(); showSuccessToast('规则已删除'); } else showSuccessToast(d.message||'失败', false); })
+                                .catch(() => showSuccessToast('网络错误', false));
+                        });
+                    };
+                    // 绑定现有的启用/删除按钮（初次加载）
+                    document.querySelectorAll('.toggle-rule').forEach(btn => bindToggleRule(btn));
+                    document.querySelectorAll('.delete-rule').forEach(btn => bindDeleteRule(btn));
+                    // 规则编辑弹窗（惰性创建一次）
+
+                        // 编辑规则弹窗（创建一次，挂 body）
+                        let ruleModal = document.getElementById('rule-edit-overlay');
+                        if (!ruleModal) {
+                            ruleModal = document.createElement('div');
+                            ruleModal.id = 'rule-edit-overlay';
+                            ruleModal.className = 'fixed inset-0 bg-black bg-opacity-40 z-50 hidden grid place-items-center p-4';
+                            ruleModal.innerHTML = `
+                                <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-auto">
+                                    <div class="flex justify-between items-center p-4 border-b"><h3 class="font-bold">编辑规则</h3><button id="close-rule-modal" class="text-gray-500 hover:text-gray-700">×</button></div>
+                                    <div class="p-4">
+                                        <form id="edit-rule-form" class="space-y-3">
+                                            <input type="hidden" name="id" id="er-id" />
+                                            <div>
+                                                <label class="block text-xs mb-1">功能</label>
+                                                <select name="feature" id="er-feature" class="px-2 py-2 border rounded-md w-full">
+                                                    <option value="both">点歌+投票</option>
+                                                    <option value="request">仅点歌</option>
+                                                    <option value="vote">仅投票</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs mb-1">类型</label>
+                                                <select name="type" id="er-type" class="px-2 py-2 border rounded-md w-full">
+                                                    <option value="1">每日固定时间</option>
+                                                    <option value="2">每周跨天</option>
+                                                    <option value="3">每周周几范围</option>
+                                                </select>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs mb-1">起始周(1-7)</label>
+                                                    <input type="number" min="1" max="7" name="start_weekday" id="er-sw" class="px-2 py-2 border rounded-md w-full" />
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs mb-1">结束周(1-7)</label>
+                                                    <input type="number" min="1" max="7" name="end_weekday" id="er-ew" class="px-2 py-2 border rounded-md w-full" />
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs mb-1">开始时间</label>
+                                                    <input type="time" name="start_time" id="er-st" class="px-2 py-2 border rounded-md w-full" />
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs mb-1">结束时间</label>
+                                                    <input type="time" name="end_time" id="er-et" class="px-2 py-2 border rounded-md w-full" />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs mb-1">备注</label>
+                                                <input type="text" name="description" id="er-desc" class="px-2 py-2 border rounded-md w-full" />
+                                            </div>
+                                            <div class="pt-2 flex justify-end gap-2">
+                                                <button type="button" id="er-cancel" class="px-4 py-2 rounded bg-gray-100">取消</button>
+                                                <button type="submit" class="px-4 py-2 rounded bg-primary text-white">保存</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>`;
+                            document.body.appendChild(ruleModal);
+                        }
+                        const closeRuleModal = () => { ruleModal.classList.add('hidden'); ruleModal.classList.remove('grid'); };
+                        const openRuleModalFromBtn = (btn) => {
+                            ruleModal.classList.remove('hidden');
+                            ruleModal.classList.add('grid');
+                            document.getElementById('er-id').value = btn.getAttribute('data-id');
+                            document.getElementById('er-feature').value = btn.getAttribute('data-feature') || 'both';
+                            document.getElementById('er-type').value = btn.getAttribute('data-type') || '1';
+                            document.getElementById('er-sw').value = btn.getAttribute('data-sw') || '';
+                            document.getElementById('er-ew').value = btn.getAttribute('data-ew') || '';
+                            document.getElementById('er-st').value = (btn.getAttribute('data-st') || '').slice(0,5);
+                            document.getElementById('er-et').value = (btn.getAttribute('data-et') || '').slice(0,5);
+                            document.getElementById('er-desc').value = btn.getAttribute('data-desc') || '';
+                            // 打开时根据类型刷新 UI
+                            try { const form = document.getElementById('edit-rule-form'); applyTypeDrivenUI(form); } catch(e){}
+                        };
+                        // 背景和按钮关闭
+                        ruleModal.addEventListener('click', (e) => { if (e.target === ruleModal) closeRuleModal(); });
+                        ruleModal.querySelector('#close-rule-modal')?.addEventListener('click', closeRuleModal);
+                        ruleModal.querySelector('#er-cancel')?.addEventListener('click', closeRuleModal);
+                        document.addEventListener('keydown', (e) => { if (!ruleModal.classList.contains('hidden') && e.key === 'Escape') closeRuleModal(); });
+
+                        // 绑定编辑按钮
+                        const bindEditRule = (btn) => { btn.addEventListener('click', () => openRuleModalFromBtn(btn)); };
+                        document.querySelectorAll('.edit-rule').forEach(btn => bindEditRule(btn));
+
+                        // 编辑表单类型切换监听与初始 UI
+                        (function(){
+                            const form = document.getElementById('edit-rule-form');
+                            if (form) {
+                                const typeSel = form.querySelector('[name="type"]');
+                                if (typeSel) typeSel.addEventListener('change', () => applyTypeDrivenUI(form));
+                                // 初始不显示，等打开时也会应用；这里做一次兜底
+                                applyTypeDrivenUI(form);
+                            }
+                        })();
+
+                        // 提交编辑
+                        const editForm = document.getElementById('edit-rule-form');
+                        if (editForm) {
+                            editForm.addEventListener('submit', function(e) {
+                                e.preventDefault();
+                                const fd = new FormData(this);
+                                fd.set('action','update_rule');
+                                fetch('time_config.php', { method: 'POST', body: fd })
+                                    .then(r => r.json())
+                                    .then(d => {
+                                        if (!d.success) { showSuccessToast(d.message||'保存失败', false); return; }
+                                        const rule = d.data?.rule || d.rule || null;
+                                        if (rule) {
+                                            const id = String(rule.id);
+                                            const tr = document.querySelector(`#rule-table-body tr td button.edit-rule[data-id="${id}"]`)?.closest('tr');
+                                            if (tr) {
+                                                tr.querySelector('td:nth-child(2)').textContent = rule.feature;
+                                                tr.querySelector('td:nth-child(3)').textContent = String(rule.type);
+                                                const t = String(rule.type);
+                                                const rsw = (t === '1') ? '/' : (rule.start_weekday || '/');
+                                                const rew = (t === '1') ? '/' : (rule.end_weekday || '/');
+                                                const rst = (t === '3') ? '/' : (rule.start_time || '/');
+                                                const ret = (t === '3') ? '/' : (rule.end_time || '/');
+                                                tr.querySelector('td:nth-child(4)').textContent = String(rsw);
+                                                tr.querySelector('td:nth-child(5)').textContent = String(rew);
+                                                tr.querySelector('td:nth-child(6)').textContent = String(rst);
+                                                tr.querySelector('td:nth-child(7)').textContent = String(ret);
+                                                const descTd = tr.querySelector('td:nth-child(9)');
+                                                if (descTd) { descTd.textContent = rule.description || ''; descTd.title = rule.description || ''; }
+                                                const editBtn = tr.querySelector('button.edit-rule');
+                                                if (editBtn) {
+                                                    editBtn.setAttribute('data-feature', rule.feature);
+                                                    editBtn.setAttribute('data-type', String(rule.type));
+                                                    editBtn.setAttribute('data-sw', rule.start_weekday ?? '');
+                                                    editBtn.setAttribute('data-ew', rule.end_weekday ?? '');
+                                                    editBtn.setAttribute('data-st', rule.start_time ?? '');
+                                                    editBtn.setAttribute('data-et', rule.end_time ?? '');
+                                                    editBtn.setAttribute('data-desc', rule.description || '');
+                                                }
+                                            }
+                                        }
+                                        showSuccessToast('已保存');
+                                        closeRuleModal();
+                                    })
+                                    .catch(() => showSuccessToast('网络错误', false));
+                            });
+                        }
+                    // 去重：toggle/delete 已在上方绑定，编辑按钮也已绑定
+                }
+
+                // 日志表：绑定“展开/收起详情”
+                if (section === 'log-management') {
+            document.querySelectorAll('.toggle-log-details').forEach((btn) => {
+                        btn.addEventListener('click', () => {
+                            const tr = btn.closest('tr');
+                            if (!tr) return;
+                            const detailsRow = tr.nextElementSibling;
+                            if (!detailsRow || !detailsRow.classList.contains('log-details-row')) return;
+                            const hidden = detailsRow.classList.toggle('hidden');
+                            const expanded = !hidden;
+                btn.textContent = expanded ? '收起' : '展开';
+                            btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                btn.setAttribute('aria-label', expanded ? '收起' : '展开');
+                        });
+                    });
+                }
             }
 
             // 绑定歌曲相关操作（编辑/删除/标记/批量）
@@ -472,15 +896,22 @@ require_once 'db_connect.php';
 
                 // 删除
                 document.querySelectorAll('.delete-song').forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        if (!confirm('确定要删除这首歌曲吗？')) return;
+                    btn.addEventListener('click', async function() {
                         const songId = this.getAttribute('data-id');
+                        const ok = await showConfirmToast('要删除这首歌曲吗？删除后不可恢复。', { confirmText: '删除', cancelText: '取消', tone: 'danger' });
+                        if (!ok) return;
                         fetch('delete_song.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(songId)}` })
                             .then(r => r.json())
                             .then(data => {
-                                showSuccessToast(data.message, data.success);
-                                if (data.success) setTimeout(() => loadSection('song-management', true), 800);
-                            });
+                                if (data.success) {
+                                    removeSongElements(songId);
+                                    updateSelectedCount();
+                                    showSuccessToast(data.message || '删除成功，已从列表移除');
+                                } else {
+                                    showSuccessToast(data.message || '删除失败，请稍后重试', false);
+                                }
+                            })
+                            .catch(() => showSuccessToast('网络错误', false));
                     });
                 });
 
@@ -491,8 +922,12 @@ require_once 'db_connect.php';
                         fetch('mark_played.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(songId)}&played=1` })
                             .then(r => r.json())
                             .then(data => {
-                                showSuccessToast(data.message, data.success);
-                                if (data.success) setTimeout(() => loadSection('song-management', true), 800);
+                                if (data.success) {
+                                    applySongPlayedUI(songId, true);
+                                    showSuccessToast(data.message || '已标记为已播放');
+                                } else {
+                                    showSuccessToast(data.message || '操作失败', false);
+                                }
                             });
                     });
                 });
@@ -502,8 +937,12 @@ require_once 'db_connect.php';
                         fetch('mark_played.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(songId)}&played=0` })
                             .then(r => r.json())
                             .then(data => {
-                                showSuccessToast(data.message, data.success);
-                                if (data.success) setTimeout(() => loadSection('song-management', true), 800);
+                                if (data.success) {
+                                    applySongPlayedUI(songId, false);
+                                    showSuccessToast(data.message || '已标记为待播放');
+                                } else {
+                                    showSuccessToast(data.message || '操作失败', false);
+                                }
                             });
                     });
                 });
@@ -513,14 +952,36 @@ require_once 'db_connect.php';
                     const selectedIds = Array.from(document.querySelectorAll('.song-checkbox:checked')).map(cb => cb.getAttribute('data-id'));
                     if (selectedIds.length === 0) { showSuccessToast('请至少选择一首歌曲', false); return; }
                     const action = document.getElementById('batch-action').value;
-                    if (action === 'delete' && !confirm(`确定要批量删除选中的${selectedIds.length}首歌曲吗？此操作不可恢复！`)) return;
-                    fetch('batch_operation.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `action=${encodeURIComponent(action)}&song_ids=${selectedIds.join(',')}` })
-                        .then(r => r.json())
-                        .then(data => {
-                            showSuccessToast(data.message, data.success);
-                            if (data.success) setTimeout(() => loadSection('song-management', true), 800);
-                        })
-                        .catch(err => { showSuccessToast('操作失败，请重试', false); console.error(err); });
+                    const doRun = async () => {
+                        if (action === 'delete') {
+                            const ok = await showConfirmToast(`将删除 ${selectedIds.length} 首歌曲，且不可恢复。继续吗？`, { confirmText: '删除', cancelText: '取消', tone: 'danger' });
+                            if (!ok) return;
+                        }
+                        fetch('batch_operation.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `action=${encodeURIComponent(action)}&song_ids=${selectedIds.join(',')}` })
+                            .then(r => r.json())
+                            .then(data => {
+                                if (data.success) {
+                                    // 按动作更新界面
+                                    if (action === 'delete') {
+                                        selectedIds.forEach(id => removeSongElements(id));
+                                    } else if (action === 'mark-played') {
+                                        selectedIds.forEach(id => applySongPlayedUI(id, true));
+                                    } else if (action === 'mark-unplayed') {
+                                        selectedIds.forEach(id => applySongPlayedUI(id, false));
+                                    } else if (action === 'reset-votes') {
+                                        selectedIds.forEach(id => updateSongVotesUI(id, 0));
+                                    }
+                                    // 清空选择
+                                    document.querySelectorAll('.song-checkbox:checked').forEach(cb => cb.checked = false);
+                                    updateSelectedCount();
+                                    showSuccessToast(data.message || '批量操作已完成');
+                                } else {
+                                    showSuccessToast(data.message || '批量操作失败', false);
+                                }
+                            })
+                            .catch(err => { showSuccessToast('网络错误', false); console.error(err); });
+                    };
+                    doRun();
                 });
 
                 // 编辑歌曲表单 AJAX 提交（如果存在）
@@ -532,10 +993,24 @@ require_once 'db_connect.php';
                         fetch(this.action || 'update_song.php', { method: 'POST', body: formData })
                             .then(r => r.json())
                             .then(data => {
-                                showSuccessToast(data.message, data.success);
                                 if (data.success) {
-                                    // 关闭模态
+                                    showSuccessToast(data.message || '保存成功');
                                     if (editSongModal) editSongModal.classList.add('hidden');
+                                    // 使用表单值就地更新列表展示
+                                    try {
+                                        const payload = Object.fromEntries(formData.entries());
+                                        updateSongRowUI({
+                                            id: payload.song_id,
+                                            song_name: payload.song_name,
+                                            artist: payload.artist,
+                                            requestor: payload.requestor,
+                                            class: payload.class,
+                                            message: payload.message,
+                                            votes: Number(payload.votes)
+                                        });
+                                    } catch (e) { /* ignore */ }
+                                } else {
+                                    showSuccessToast(data.message || '保存失败', false);
                                 }
                             })
                             .catch(err => { showSuccessToast('保存失败', false); console.error(err); });
@@ -546,6 +1021,173 @@ require_once 'db_connect.php';
             // 简单工具函数
             function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
             function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+            // 局部 DOM 更新辅助
+            function removeSongElements(id) {
+                // 表格行
+                document.querySelectorAll(`.song-checkbox[data-id="${id}"]`).forEach(cb => {
+                    const tr = cb.closest('tr'); if (tr) tr.remove();
+                });
+                // 卡片
+                document.querySelectorAll(`.delete-song[data-id="${id}"], .mark-played[data-id="${id}"], .mark-unplayed[data-id="${id}"]`).forEach(btn => {
+                    const card = btn.closest('.bg-white.rounded-lg.shadow.p-4'); if (card) card.remove();
+                });
+            }
+
+        function updateSongVotesUI(id, votes) {
+                // 表格
+                document.querySelectorAll(`tr .song-checkbox[data-id="${id}"]`).forEach(cb => {
+            const td = cb.closest('tr')?.querySelector('td:nth-child(6) span');
+                    if (td) td.textContent = votes;
+                });
+                // 卡片
+                document.querySelectorAll(`#song-card-list .song-checkbox[data-id="${id}"]`).forEach(cb => {
+                    const span = cb.closest('.bg-white')?.querySelector('.fa-thumbs-up')?.nextElementSibling;
+                    if (span) span.textContent = votes;
+                });
+            }
+
+            function applySongPlayedUI(id, played) {
+                const filter = document.getElementById('song-filter')?.value || 'all';
+                // 表格
+                document.querySelectorAll(`tr .song-checkbox[data-id="${id}"]`).forEach(cb => {
+                    const tr = cb.closest('tr');
+                    if (!tr) return;
+                    const statusTd = tr.querySelector('td:nth-child(8)');
+                    if (statusTd) statusTd.innerHTML = played
+                        ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>'
+                        : '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>';
+                    const opTd = tr.querySelector('td:nth-child(9) .flex');
+                    if (opTd) {
+                        const old = opTd.querySelector('.mark-played, .mark-unplayed');
+                        if (old) old.remove();
+                        const btn = document.createElement('button');
+                        if (played) {
+                            btn.className = 'mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all';
+                            btn.setAttribute('data-id', id);
+                            btn.innerHTML = '<i class="fa fa-undo"></i>';
+                            btn.addEventListener('click', function() { fetchMark(id, 0); });
+                        } else {
+                            btn.className = 'mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all';
+                            btn.setAttribute('data-id', id);
+                            btn.innerHTML = '<i class="fa fa-check"></i>';
+                            btn.addEventListener('click', function() { fetchMark(id, 1); });
+                        }
+                        opTd.appendChild(btn);
+                    }
+                    // 当前筛选下需隐藏不匹配的
+                    if ((filter === 'pending' && played) || (filter === 'played' && !played)) {
+                        tr.remove();
+                    }
+                });
+                // 卡片
+                document.querySelectorAll(`#song-card-list .song-checkbox[data-id="${id}"]`).forEach(cb => {
+                    const card = cb.closest('.bg-white.rounded-lg.shadow.p-4');
+                    if (!card) return;
+                    // 精确替换状态徽章，避免误改票数 span
+                    let badge = card.querySelector('span.rounded-full');
+                    const newBadgeHtml = played
+                        ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已播放</span>'
+                        : '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">待播放</span>';
+                    if (badge) {
+                        badge.outerHTML = newBadgeHtml;
+                    } else {
+                        // 找到状态容器（在右侧 text-sm），插入新徽章
+                        const statusWrap = card.querySelector('.mt-3 .flex.items-center.space-x-3 .text-sm:last-child');
+                        if (statusWrap) statusWrap.innerHTML = newBadgeHtml;
+                    }
+                    const ops = card.querySelector('.flex.items-center.space-x-2');
+                    if (ops) {
+                        const old = ops.querySelector('.mark-played, .mark-unplayed');
+                        if (old) old.remove();
+                        const btn = document.createElement('button');
+                        if (played) {
+                            btn.className = 'mark-unplayed p-1.5 rounded bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-all';
+                            btn.setAttribute('data-id', id);
+                            btn.innerHTML = '<i class="fa fa-undo"></i>';
+                            btn.addEventListener('click', function() { fetchMark(id, 0); });
+                        } else {
+                            btn.className = 'mark-played p-1.5 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-all';
+                            btn.setAttribute('data-id', id);
+                            btn.innerHTML = '<i class="fa fa-check"></i>';
+                            btn.addEventListener('click', function() { fetchMark(id, 1); });
+                        }
+                        ops.appendChild(btn);
+                    }
+                    if ((filter === 'pending' && played) || (filter === 'played' && !played)) {
+                        card.remove();
+                    }
+                });
+            }
+
+            function fetchMark(id, played) {
+                fetch('mark_played.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `song_id=${encodeURIComponent(id)}&played=${played?1:0}` })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            applySongPlayedUI(id, !!played);
+                            showSuccessToast(data.message || (played ? '已标记为已播放' : '已标记为待播放'));
+                        } else {
+                            showSuccessToast(data.message || '操作失败', false);
+                        }
+                    })
+                    .catch(() => showSuccessToast('网络错误', false));
+            }
+
+            // 编辑保存后更新行/卡片展示
+            function updateSongRowUI(song) {
+                const id = song.id;
+                if (!id) return;
+                // 更新表格
+                document.querySelectorAll(`tr .song-checkbox[data-id="${id}"]`).forEach(cb => {
+                    const tr = cb.closest('tr');
+                    if (!tr) return;
+                    // 歌名/歌手
+                    const songCell = tr.querySelector('td:nth-child(2)');
+                    if (songCell) {
+                        const nameEl = songCell.querySelector('.font-medium');
+                        const artistEl = songCell.querySelector('.text-sm.text-gray-500');
+                        if (nameEl && song.song_name != null) nameEl.textContent = song.song_name;
+                        if (artistEl && song.artist != null) artistEl.textContent = song.artist;
+                    }
+                    // 点歌人
+                    const reqCell = tr.querySelector('td:nth-child(3) .text-sm');
+                    if (reqCell && song.requestor != null) reqCell.textContent = song.requestor;
+                    // 班级
+                    const classCell = tr.querySelector('td:nth-child(4) .text-sm');
+                    if (classCell && song.class != null) classCell.textContent = song.class;
+                    // 点歌时间
+                    const timeCell = tr.querySelector('td:nth-child(5) .song-time');
+                    if (timeCell && song.created_at != null) timeCell.textContent = song.created_at;
+                    // 票数
+                    if (Number.isFinite(song.votes)) updateSongVotesUI(id, Number(song.votes));
+                    // 留言
+                    const msgCell = tr.querySelector('td:nth-child(7) .song-message');
+                    if (msgCell && song.message != null) {
+                        msgCell.textContent = song.message;
+                        msgCell.setAttribute('title', song.message);
+                    }
+                });
+                // 更新卡片
+                document.querySelectorAll(`#song-card-list .song-checkbox[data-id="${id}"]`).forEach(cb => {
+                    const card = cb.closest('.bg-white.rounded-lg.shadow.p-4');
+                    if (!card) return;
+                    const titleEl = card.querySelector('.text-base.font-medium');
+                    if (titleEl && song.song_name != null) titleEl.textContent = song.song_name;
+                    const singerEl = card.querySelector('.text-sm.text-gray-500');
+                    if (singerEl && song.artist != null) singerEl.textContent = `歌手：${song.artist}`;
+                    const infoEls = card.querySelectorAll('.text-sm.text-gray-900');
+                    if (infoEls && infoEls.length >= 2) {
+                        if (song.requestor != null) infoEls[0].textContent = `点歌人：${song.requestor}`;
+                        if (song.class != null) infoEls[1].textContent = `班级：${song.class}`;
+                    }
+                    const timeEl = card.querySelector('.song-time');
+                    if (timeEl && song.created_at != null) timeEl.textContent = `时间：${song.created_at}`;
+                    const msgEl = card.querySelector('.song-message');
+                    if (msgEl && song.message != null) msgEl.textContent = `留言：${song.message}`;
+                    if (Number.isFinite(song.votes)) updateSongVotesUI(id, Number(song.votes));
+                });
+            }
     </script>
 </body>
 </html>
