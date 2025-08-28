@@ -582,36 +582,67 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                     if (!localStorage.getItem('requestDate')) localStorage.setItem('requestDate', todayKey());
                     if (!localStorage.getItem('actionDate')) localStorage.setItem('actionDate', todayKey());
                     if (!localStorage.getItem('actionCount')) setActionCount(0);
-                    // 若本地已有“上次状态”为关闭，而当前为开启，视为跨会话的关闭->开启，执行一次重置
-                    const reopenedByPersist = (
-                        (lastRequestOpenLS === '0' && nowRequestOpen) ||
-                        (lastVoteOpenLS === '0' && nowVoteOpen)
-                    );
-                    // 若本地上次令牌存在，且本次为 open，且令牌变化（或之前为 closed），也视为进入了新的开放窗口
-                    const reopenedByToken = (
+                    // 识别“跨会话的关闭->开启”：分别计算 request/vote
+                    const reopenedRequestByPersist = (lastRequestOpenLS === '0' && nowRequestOpen);
+                    const reopenedVoteByPersist = (lastVoteOpenLS === '0' && nowVoteOpen);
+                    const reopenedRequestByToken = (
                         (lastRequestToken && requestTokenNow.startsWith('open:') && lastRequestToken !== requestTokenNow) ||
+                        (lastRequestToken && lastRequestToken.startsWith('closed:') && requestTokenNow.startsWith('open:'))
+                    );
+                    const reopenedVoteByToken = (
                         (lastVoteToken && voteTokenNow.startsWith('open:') && lastVoteToken !== voteTokenNow) ||
-                        (lastRequestToken && lastRequestToken.startsWith('closed:') && requestTokenNow.startsWith('open:')) ||
                         (lastVoteToken && lastVoteToken.startsWith('closed:') && voteTokenNow.startsWith('open:'))
                     );
-                    if (reopenedByPersist || reopenedByToken) {
-                        localStorage.removeItem('votedSongs');
-                        localStorage.setItem('requestCount', '0');
-                        localStorage.setItem('voteCount', '0');
-                        setActionCount(0);
-                        try { showToast('功能已开放，次数已刷新！'); } catch(e){}
+                    const reopenedReq = reopenedRequestByPersist || reopenedRequestByToken;
+                    const reopenedVot = reopenedVoteByPersist || reopenedVoteByToken;
+                    if (combinedMode) {
+                        if (reopenedReq || reopenedVot) {
+                            localStorage.removeItem('votedSongs');
+                            localStorage.setItem('requestCount', '0');
+                            localStorage.setItem('voteCount', '0');
+                            setActionCount(0);
+                            try { showToast('功能已开放，次数已刷新！'); } catch(e){}
+                        }
+                    } else {
+                        // 分别重置：点歌仅重置点歌次数；投票重置投票次数并清空已点赞列表
+                        let msg = null;
+                        if (reopenedReq) {
+                            localStorage.setItem('requestCount', '0');
+                            msg = '点歌次数已刷新！';
+                        }
+                        if (reopenedVot) {
+                            localStorage.removeItem('votedSongs');
+                            localStorage.setItem('voteCount', '0');
+                            msg = msg ? '点歌/投票次数已刷新！' : '投票次数已刷新！';
+                        }
+                        if (msg) try { showToast(msg); } catch(e){}
                     }
                 }
                 // 若从关闭->开启，刷新本地次数与投票记录
                 if (prev) {
                     const reopenedRequest = !prev.request.open && timeStatus.request.open;
                     const reopenedVote = !prev.vote.open && timeStatus.vote.open;
-                    if (reopenedRequest || reopenedVote) {
-                        localStorage.removeItem('votedSongs');
-                        localStorage.setItem('requestCount', '0');
-                        localStorage.setItem('voteCount', '0');
-                        setActionCount(0);
-                        showToast('功能已开放，次数已刷新！');
+                    if (combinedMode) {
+                        if (reopenedRequest || reopenedVote) {
+                            localStorage.removeItem('votedSongs');
+                            localStorage.setItem('requestCount', '0');
+                            localStorage.setItem('voteCount', '0');
+                            setActionCount(0);
+                            showToast('功能已开放，次数已刷新！');
+                        }
+                    } else {
+                        // 分别重置
+                        let msg = null;
+                        if (reopenedRequest) {
+                            localStorage.setItem('requestCount', '0');
+                            msg = '点歌次数已刷新！';
+                        }
+                        if (reopenedVote) {
+                            localStorage.removeItem('votedSongs');
+                            localStorage.setItem('voteCount', '0');
+                            msg = msg ? '点歌/投票次数已刷新！' : '投票次数已刷新！';
+                        }
+                        if (msg) showToast(msg);
                     }
                 }
                 // 更新持久化的“上次开放状态”标记（用于跨会话识别）
@@ -632,7 +663,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                             // 首次访问：只初始化，不提示、不清空
                             localStorage.setItem('lastResetSeq', String(nowResetSeq));
                         } else if (nowResetSeq > lastResetSeq) {
-                            // 非首次，且服务端强制刷新序号递增：清空并提示
+                            // 非首次，且服务端强制刷新序号递增：清空并提示（保持与“合并上限”逻辑一致，统一全部清空）
                             localStorage.removeItem('votedSongs');
                             localStorage.setItem('requestCount', '0');
                             localStorage.setItem('voteCount', '0');
@@ -701,7 +732,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                 }
                 form?.classList.add('opacity-60');
                 const html = info.next_open && !isManualClosed 
-                    ? `不可点歌 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span>` 
+                    ? `不可点歌 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span><br>开放倒计时：${formatCountdown(info.next_open)}` 
                     : `不可点歌 · <span class=\"text-danger\">已手动关闭</span>`;
                 if (statusEl) statusEl.innerHTML = html;
                 if (placeholder) { placeholder.innerHTML = html; placeholder.classList.remove('hidden'); }
@@ -712,6 +743,17 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                     requestClosed.classList.remove('hidden');
                 }
                 if (requestTimer) clearInterval(requestTimer);
+                // 关闭时且存在下一次开放时间，显示并刷新“开放倒计时”
+        if (info.next_open && !isManualClosed) {
+                    const updateClosedCountdown = () => {
+            const html2 = `不可点歌 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span><br>开放倒计时：${formatCountdown(info.next_open)}`;
+                        if (statusEl) statusEl.innerHTML = html2;
+                        if (placeholder) placeholder.innerHTML = html2;
+                        if (requestClosedText) requestClosedText.innerHTML = html2;
+                    };
+                    updateClosedCountdown();
+                    requestTimer = setInterval(updateClosedCountdown, 1000);
+                }
             }
             
         }
@@ -753,7 +795,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
                     if (votePlaceholder) votePlaceholder.classList.add('hidden');
                     if (voteClosedAll) voteClosedAll.classList.add('hidden');
                 } else {
-                    const html = info.next_open && !isManualClosed ? `不可投票 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span>` : `不可投票 · <span class=\"text-danger\">已手动关闭</span>`;
+                    const html = info.next_open && !isManualClosed ? `不可投票 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span><br>开放倒计时：${formatCountdown(info.next_open)}` : `不可投票 · <span class=\"text-danger\">已手动关闭</span>`;
                     voteStatusEl.innerHTML = html;
                     // 隐藏两块卡片（待播清单 + 播放历史），显示全局占位
                     if (pendingCard) pendingCard.classList.add('hidden');
@@ -766,11 +808,20 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
             }
             if (voteTimer) clearInterval(voteTimer);
             if (info.open && info.next_close) {
-                // 如需展示投票倒计时，可在此刷新 voteStatus 文本
+                // 开放时刷新“结束倒计时”
                 voteTimer = setInterval(()=>{
                     const l = getVoteLeft();
                     if (document.getElementById('vote-status') && timeStatus?.vote?.open) {
                         document.getElementById('vote-status').textContent = `可投票 · 剩余${l}次${timeStatus.vote.next_close? ' · 结束倒计时：'+formatCountdown(timeStatus.vote.next_close): ''}`;
+                    }
+                }, 1000);
+            } else if (!info.open && info.next_open && !(timeStatus?.mode === 'manual')) {
+                // 关闭时刷新“开放倒计时”
+                voteTimer = setInterval(()=>{
+                    if (document.getElementById('vote-status') && !timeStatus?.vote?.open) {
+                        const html2 = `不可投票 · 下次开放时间：<span class=\"text-primary\">${new Date(info.next_open).toLocaleString()}</span><br>开放倒计时：${formatCountdown(info.next_open)}`;
+                        document.getElementById('vote-status').innerHTML = html2;
+                        if (voteClosedAllText) voteClosedAllText.innerHTML = html2;
                     }
                 }, 1000);
             }

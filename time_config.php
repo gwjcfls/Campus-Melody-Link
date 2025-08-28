@@ -1,4 +1,7 @@
 <?php
+// 允许被测试脚本以“库模式”引入：define('TIME_CONFIG_LIB', true)
+$__LIB_MODE = defined('TIME_CONFIG_LIB') && TIME_CONFIG_LIB === true;
+
 // 会话安全配置（放在session_start()之前）
 ini_set('session.cookie_secure', 'On');
 ini_set('session.cookie_httponly', 'On');
@@ -7,10 +10,14 @@ ini_set('session.cookie_lifetime', 0);
 ini_set('session.gc_maxlifetime', 3600);
 ini_set('session.regenerate_id', 'On');
 
-session_start();
+if (!$__LIB_MODE) {
+    session_start();
+}
 require_once 'db_connect.php';
 
-header('Content-Type: application/json; charset=utf-8');
+if (!$__LIB_MODE) {
+    header('Content-Type: application/json; charset=utf-8');
+}
 // ---------- schema ensure ----------
 function ensure_schema(PDO $pdo) {
     try {
@@ -45,7 +52,7 @@ ensure_schema($pdo);
 
 
 function json_ok($data = [], $message = 'ok') { echo json_encode(['success' => true, 'message' => $message, 'data' => $data], JSON_UNESCAPED_UNICODE); exit; }
-function json_err($message = 'error', $code = 400) { http_response_code($code); echo json_encode(['success' => false, 'message' => $message], JSON_UNESCAPED_UNICODE); exit; }
+function json_err($message = 'error', $code = 400) { if (PHP_SAPI !== 'cli') { http_response_code($code); } echo json_encode(['success' => false, 'message' => $message], JSON_UNESCAPED_UNICODE); exit; }
 
 // ---------- helpers ----------
 function get_settings(PDO $pdo) {
@@ -135,9 +142,9 @@ function compute_status(PDO $pdo) {
             $res = eval_rule_window($r, $nowTs);
             if ($res['is_open']) {
                 $open = true;
-                // 取最近的关闭时间（更近的）
+                // 取最晚的关闭时间（更晚的），用于重叠窗口场景
                 if ($res['end_ts'] !== null) {
-                    if ($nextCloseTs === null || $res['end_ts'] < $nextCloseTs) $nextCloseTs = $res['end_ts'];
+                    if ($nextCloseTs === null || $res['end_ts'] > $nextCloseTs) $nextCloseTs = $res['end_ts'];
                 }
             } else {
                 // 取最近的开启时间（更近的）
@@ -265,27 +272,28 @@ function next_day_in_range(int $nowTs, int $startW, int $endW, string $startT): 
 function dt_atom($ts) { return date(DATE_ATOM, $ts); }
 
 // ---------- routing ----------
-$action = $_GET['action'] ?? $_POST['action'] ?? 'status';
+if (!$__LIB_MODE) {
+    $action = $_GET['action'] ?? $_POST['action'] ?? 'status';
 
-if ($action === 'status') {
-    $data = compute_status($pdo);
-    json_ok($data);
-}
+    if ($action === 'status') {
+        $data = compute_status($pdo);
+        json_ok($data);
+    }
 
-// 需要管理员
-if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    json_err('未授权访问', 403);
-}
+    // 需要管理员
+    if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+        json_err('未授权访问', 403);
+    }
 
-if ($action === 'get_settings') {
-    json_ok(get_settings($pdo));
-}
+    if ($action === 'get_settings') {
+        json_ok(get_settings($pdo));
+    }
 
-if ($action === 'list_rules') {
-    json_ok(['rules' => list_rules($pdo, false)]);
-}
+    if ($action === 'list_rules') {
+        json_ok(['rules' => list_rules($pdo, false)]);
+    }
 
-if ($action === 'update_settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'update_settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $current = get_settings($pdo); // 用于继承 reset_seq
     $mode = $_POST['mode'] ?? 'manual';
     if (!in_array($mode, ['manual','auto'], true)) json_err('mode不合法');
@@ -314,9 +322,9 @@ if ($action === 'update_settings' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($combined_limit !== null) { $details['cl'] = $combined_limit; }
     log_operation($pdo, $user, $role, '更新时间设置', null, json_encode($details, JSON_UNESCAPED_UNICODE));
     json_ok();
-}
+    }
 
-if ($action === 'force_reset' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'force_reset' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // 仅管理员已在上方判断
     $current = get_settings($pdo);
     $newSeq = ((int)$current['reset_seq']) + 1;
@@ -347,9 +355,9 @@ if ($action === 'force_reset' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_SESSION['admin_role'] ?? '';
     log_operation($pdo, $user, $role, '强制刷新用户本地次数', null, json_encode(['reset_seq'=>$newSeq], JSON_UNESCAPED_UNICODE));
     json_ok(['reset_seq' => $newSeq], '已触发强制刷新');
-}
+    }
 
-if ($action === 'add_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'add_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $feature = $_POST['feature'] ?? 'both';
     if (!in_array($feature, ['request','vote','both'], true)) json_err('feature不合法');
     $type = (int)($_POST['type'] ?? 0);
@@ -371,9 +379,9 @@ if ($action === 'add_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_SESSION['admin_role'] ?? '';
     log_operation($pdo, $user, $role, '新增时间规则', (string)$id, json_encode(['feature'=>$feature,'type'=>$type,'start_weekday'=>$start_weekday,'end_weekday'=>$end_weekday,'start_time'=>$start_time,'end_time'=>$end_time,'description'=>$description], JSON_UNESCAPED_UNICODE));
     json_ok(['id' => (int)$id]);
-}
+    }
 
-if ($action === 'delete_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'delete_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
     if ($id <= 0) json_err('无效规则ID');
     $stmt = $pdo->prepare('DELETE FROM time_rules WHERE id = :id');
@@ -382,9 +390,9 @@ if ($action === 'delete_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_SESSION['admin_role'] ?? '';
     log_operation($pdo, $user, $role, '删除时间规则', (string)$id, null);
     json_ok();
-}
+    }
 
-if ($action === 'toggle_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'toggle_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
     $active = isset($_POST['active']) ? (int)!!$_POST['active'] : 0;
     if ($id <= 0) json_err('无效规则ID');
@@ -394,9 +402,9 @@ if ($action === 'toggle_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_SESSION['admin_role'] ?? '';
     log_operation($pdo, $user, $role, '切换时间规则', (string)$id, json_encode(['active'=>$active], JSON_UNESCAPED_UNICODE));
     json_ok();
-}
+    }
 
-if ($action === 'update_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'update_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
     if ($id <= 0) json_err('无效规则ID');
     $feature = $_POST['feature'] ?? 'both';
@@ -425,7 +433,8 @@ if ($action === 'update_rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_SESSION['admin_role'] ?? '';
     log_operation($pdo, $user, $role, '编辑时间规则', (string)$id, json_encode(['feature'=>$feature,'type'=>$type,'start_weekday'=>$start_weekday,'end_weekday'=>$end_weekday,'start_time'=>$start_time,'end_time'=>$end_time,'description'=>$description], JSON_UNESCAPED_UNICODE));
     json_ok(['rule' => $row]);
-}
+    }
 
-json_err('未知操作', 400);
+    json_err('未知操作', 400);
+}
 ?>
