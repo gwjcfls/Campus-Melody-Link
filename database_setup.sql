@@ -1,3 +1,8 @@
+-- 全局字符集设置（确保中文不乱码）
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+SET collation_connection = 'utf8mb4_unicode_ci';
+
 -- 创建歌曲请求表
 CREATE TABLE IF NOT EXISTS song_requests (
     id SERIAL PRIMARY KEY,
@@ -10,21 +15,21 @@ CREATE TABLE IF NOT EXISTS song_requests (
     played BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     played_at TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 创建通知表
 CREATE TABLE IF NOT EXISTS announcements (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 创建点歌规则表
 CREATE TABLE IF NOT EXISTS rules (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 创建操作日志表
 CREATE TABLE IF NOT EXISTS operation_logs (
@@ -36,7 +41,7 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     details TEXT,        -- 详细描述
     ip VARCHAR(45),     -- 操作IP
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 插入示例通知
 INSERT INTO announcements (content) VALUES ('欢迎使用校园广播站点歌系统！');
@@ -62,8 +67,9 @@ CREATE TABLE IF NOT EXISTS time_settings (
     request_limit INT NOT NULL DEFAULT 1,                  -- 点歌次数上限（本地计数）
     vote_limit INT NOT NULL DEFAULT 3,                     -- 投票次数上限（本地计数）
     combined_limit INT NULL DEFAULT NULL,                  -- 合并总次数上限（NULL 表示未启用）
+    reset_seq INT NOT NULL DEFAULT 0,                      -- 强制刷新序列号（管理员触发本地计数清零）
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 规则表
 -- feature: request | vote | both
@@ -81,9 +87,9 @@ CREATE TABLE IF NOT EXISTS time_rules (
     description VARCHAR(255) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 初始化 settings（若表为空则插入默认记录）
-INSERT INTO time_settings (mode, manual_request_enabled, manual_vote_enabled, request_limit, vote_limit, combined_limit)
-SELECT 'manual', TRUE, TRUE, 1, 3, NULL
+-- 初始化 settings（若表为空则插入默认记录，reset_seq=0）
+INSERT INTO time_settings (mode, manual_request_enabled, manual_vote_enabled, request_limit, vote_limit, combined_limit, reset_seq)
+SELECT 'manual', TRUE, TRUE, 1, 3, NULL, 0
 WHERE NOT EXISTS (SELECT 1 FROM time_settings);

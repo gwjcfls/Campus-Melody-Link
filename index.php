@@ -484,7 +484,9 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
     
     <!-- 页脚 -->
     <footer class="text-dark/60 py-8 mt-12 text-center text-sm">
-        <p>© 2025 语之声点歌站 · Made with <i class="fa fa-heart text-secondary"></i></p>
+        <p>© 2025 语之声点歌站 · Made with <i class="fa fa-heart text-secondary"></i>
+            <a href="https://github.com/gwjcfls" target="_blank" rel="noopener noreferrer" class="text-primary underline hover:no-underline">@gwjcfls</a>
+        </p>
     </footer>
     
     <!-- 提示框 -->
