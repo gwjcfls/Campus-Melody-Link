@@ -332,12 +332,11 @@ php tests/hack_time_cases.php
          - 将数据库默认字符集改为 utf8mb4：`ALTER DATABASE <db> CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
          - 针对已有表执行：`ALTER TABLE <table> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
          - 在客户端连接后执行：`SET NAMES 'utf8mb4'; SET CHARACTER SET utf8mb4; SET collation_connection='utf8mb4_unicode_ci';`
-      - 若 install.php 无法写入 `db_connect.php`，页面会给出可复制的文件内容，按提示手动创建后重试。
+      - 先检查文件夹写入权限。若 install.php 无法写入 `db_connect.php`，页面会给出可复制的文件内容，按提示手动创建后重试。
 
 ## 生产部署建议
 
 - 使用 Nginx + PHP-FPM（或 Apache mod_php/FPM），全站 HTTPS
-- 配置 OPcache 与合理的 `pm.max_children`
 - 正确的时区与时钟同步（NTP）
 - 定期备份数据库（含 song_requests/operation_logs/time_* 等）
 - 敏感词词库与 `trie_cache.php` 作为代码资源随版本发布
@@ -349,9 +348,12 @@ php tests/hack_time_cases.php
 - 为时间规则增加“生效区间（起止日期）”与“假日例外”
 - 接入统一登录（CAS/OAuth）
 
-## 许可
+## 协议
 
-MIT License
+此项目 (Class Widgets) 基于 GPL-3.0 许可证授权发布，详情请参阅 [LICENSE](./LICENSE) 文件。
 
-——
-维护者备注：本 README 基于源码全量审阅与测试脚本语义编写，含所有关键设计与运维要点。如有环境差异或新增功能，请同步更新本文档与 `database_setup.sql`/测试用例。
+Copyright © 2025 RinLit.
+
+## 致谢
+
+感谢dyr同学的资金支持
