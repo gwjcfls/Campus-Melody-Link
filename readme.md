@@ -1,8 +1,27 @@
-# 校园广播站点歌系统（超详细文档）
+<p align="center">
+  <img width="70%" align="center" src="img/logo.png" alt="logo">
+</p>
+  <h1 align="center">
+  星声校园点歌台
+</h1>
+   <h3 align="center">
+  Campus Melody Link
+</h3>
+<p align="center">
+ 全新校园点歌台——“星声” 既指歌声如星光般点亮校园，也暗含 “心声”，借歌曲传递情感的心意
+ “Melody Link” 寓意用旋律连接校园里的人和事
+</p>
+
+<div align="center">
+
+[![星标](https://img.shields.io/github/stars/gwjcfls/gwjcfls.github.io?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Class-Widgets/Class-Widgets)
+[![当前版本](https://img.shields.io/github/v/release/Class-Widgets/Class-Widgets?style=for-the-badge&color=purple&label=%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC)](https://github.com/Class-Widgets/Class-Widgets/releases/latest)
+[![开源许可](https://img.shields.io/badge/license-GPLv3-blue.svg?label=%E5%BC%80%E6%BA%90%E8%AE%B8%E5%8F%AF%E8%AF%81&style=for-the-badge)](https://github.com/Class-Widgets/Class-Widgets?tab=GPL-3.0-1-ov-file)
+[![下载量](https://img.shields.io/github/downloads/Class-Widgets/Class-Widgets/total.svg?label=%E4%B8%8B%E8%BD%BD%E9%87%8F&color=green&style=for-the-badge)](https://github.com/Class-Widgets/Class-Widgets)
+
+</div>
 
 一套可直接部署的在线点歌与投票系统，包含前台点歌/投票、公告与规则展示、后台歌曲与公告/时间规则/日志管理、敏感词审核、时间开放策略（手动/自动）与本地次数限制等完整能力。后端 PHP + MySQL，前端 Tailwind CSS + Font Awesome，敏感词检测基于前缀树（Trie）高效匹配。
-
-本文是面向部署和二次开发的终极 README：覆盖架构、安装、数据库、接口、时间规则语义、前端计数逻辑、后台操作、测试与运维、安全与常见问题。
 
 提示：本文所有路径均相对于项目根目录（例如 /var/www/html）。
 
@@ -28,6 +47,19 @@
    - 敏感词检测：提交点歌时对留言执行 Trie 匹配拦截
    - 完整的 API 与测试脚本：fuzz + 极端 case 校验时间逻辑正确性
 
+## 项目截图
+
+![截图1](img/screenshot/截图%202025-08-29%2011-50-30.png)
+
+![截图2](img/screenshot/截图%202025-08-29%2011-44-51.png)
+
+![截图3](img/screenshot/截图%202025-08-29%2011-44-36.png)
+
+![截图4](img/screenshot/截图%202025-08-29%2011-47-38.png)
+
+[查看更多截图 →](img/screenshot/README.md)
+
+
 ## 技术栈与关键文件
 
 - PHP 7.2+，PDO MySQL
@@ -42,32 +74,6 @@
    - 敏感词：`badwords.php`（词库）、`build.php`（构建器）、`trie_cache.php`（构建产物）
    - 数据库与连接：`database_setup.sql`、`db_connect.php`
    - 测试：`tests/`（见“测试与验证”）
-
-## 目录与结构（节选）
-
-```
-index.php                # 前台页面（含前端时间/配额逻辑）
-admin.php                # 后台控制台（管理入口与交互脚本）
-admin_login.php          # 后台登录接口
-admin_logout.php         # 后台退出接口
-admin_fragment.php       # 后台各板块片段（AJAX 加载）
-submit_request.php       # 点歌提交（含敏感词检测/日志）
-get_song.php             # 获取歌曲列表/单条
-update_song.php          # 修改歌曲信息
-delete_song.php          # 删除歌曲
-mark_played.php          # 标记已播/未播
-batch_operation.php      # 批量操作
-update_announcement.php  # 更新公告
-update_rule.php          # 更新点歌规则文本
-time_config.php          # 时间/限额配置 API + 自动迁移
-time_lib.php             # 时间规则纯函数（复用给测试）
-badwords.php             # 敏感词词库（原始）
-build.php                # 生成 trie_cache.php
-trie_cache.php           # Trie 缓存（生成文件）
-database_setup.sql       # 初始化 SQL（含 song_requests/announcements/rules/operation_logs/time_*）
-db_connect.php           # PDO 连接与 log_operation()
-tests/                   # fuzz 与 hack case 自动化校验
-```
 
 ## 安装与部署
 
@@ -272,6 +278,59 @@ time_rules 字段要点：
 
 所有后台操作均返回 JSON：`{ success: boolean, message?: string, ... }`
 
+## 搜索歌曲 API 返回数据要求
+
+前台首页通过浏览器直接请求第三方歌曲搜索接口（见 `index.php`），并将返回结果展示在“搜索歌曲”弹窗中。因此，该接口需满足以下返回格式与行为约定：
+
+- 请求方式：GET（示例：`/music/search?word=关键词`）。
+- CORS：必须允许浏览器跨域访问（设置 `Access-Control-Allow-Origin: *` 或你的站点域名）。
+- Content-Type：`application/json; charset=utf-8`。
+
+顶层 JSON 结构（必需）：
+
+- code：number。成功必须为 200；非 200 视为失败并显示“未找到”占位。
+- data：array。结果数组；缺省/空数组将显示“未找到”。
+
+单个结果对象字段：
+
+- song：string，必填。歌曲名称，用于填写“歌曲名称”。
+- singer：string，必填。歌手名称，用于填写“歌手”。
+- cover：string，可选。封面图片完整 URL；需以 `http` 或 `https` 开头，若无或非法将回退到占位图。
+
+前端使用与容错说明：
+
+- 仅当 `code === 200` 时，才渲染 `data`；否则视为无结果。
+- `data` 非数组或为空数组时，展示“没有找到”提示。
+- 对于每个结果，`song`/`singer` 会被转成字符串并写入显示与隐藏字段，`cover` 非 http(s) URL 将被忽略并使用内置占位图。
+
+示例响应（成功）：
+
+```json
+{
+   "code": 200,
+   "data": [
+      {
+         "song": "夜空中最亮的星",
+         "singer": "逃跑计划",
+         "cover": "https://example.com/covers/brightest-star.jpg"
+      },
+      {
+         "song": "晴天",
+         "singer": "周杰伦",
+         "cover": "https://example.com/covers/qingtian.png"
+      }
+   ]
+}
+```
+
+示例响应（失败或无结果）：
+
+```json
+{ "code": 404, "data": [] }
+```
+
+注意：前端不会使用音频播放 URL，仅用于辅助填写“歌曲名称/歌手”。如需扩展更多字段（如专辑名、时长），可在保持上述字段的前提下追加自定义字段。
+
 ## 安全加固
 
 - Session：
@@ -341,19 +400,22 @@ php tests/hack_time_cases.php
 - 定期备份数据库（含 song_requests/operation_logs/time_* 等）
 - 敏感词词库与 `trie_cache.php` 作为代码资源随版本发布
 
-## 变更与扩展建议
+## TODO-List
 
-- 将投票改为后端幂等接口（token 实名/验证码），以替代本地存储的“已投列表”
-- 增加分页与导出 CSV（songs/logs）
-- 为时间规则增加“生效区间（起止日期）”与“假日例外”
-- 接入统一登录（CAS/OAuth）
+- [ ] 增加分页与导出 CSV（songs/logs）
+- [ ] 添加后台管理员账号管理，可在后台新增管理员账号
+
 
 ## 协议
 
-此项目 (Class Widgets) 基于 GPL-3.0 许可证授权发布，详情请参阅 [LICENSE](./LICENSE) 文件。
+此项目 (星声校园点歌台) 基于 GPL-3.0 许可证授权发布，详情请参阅 [LICENSE](./LICENSE) 文件。
 
-Copyright © 2025 RinLit.
+Copyright © 2025 gwjcfls.
 
 ## 致谢
 
 感谢dyr同学的资金支持
+
+感谢各大AI（按使用量排序）：Chatgpt-5、Chatgpt-4 mini、Chatgpt-4、deepseek v3、Gemini 2.5 pro、Claude Sonnet 4、Grok Code Fast 1
+
+感谢[落月api](https://doc.vkeys.cn/api-doc/)提供的歌曲搜索接口
