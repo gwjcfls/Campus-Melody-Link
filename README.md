@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="70%" align="center" src="img/logo.png" alt="logo">
+  <img width="50%" align="center" src="img/logo.png" alt="logo">
 </p>
   <h1 align="center">
   星声校园点歌台
