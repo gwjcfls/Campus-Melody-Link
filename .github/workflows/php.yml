@@ -1,0 +1,36 @@
+name: Build and Deploy PHP
+
+
+on:
+  push:
+    branches:
+      - master
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+
+    steps:
+    - uses: actions/checkout@v2
+
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '7.4' # 指定 PHP 版本
+
+
+    - name: Execute commands on remote server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        script: |
+          # 停止旧的 PHP 服务
+          sudo service php7.4-fpm stop
+          # 启动新的 PHP 服务
+          sudo service php7.4-fpm start
