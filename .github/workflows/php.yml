@@ -1,41 +1,36 @@
-name: Build PHP to Static Files
+name: PHP Project Workflow
 
 on:
   push:
-    branches: [ main ]  # 推送到main分支时触发
+    branches: [ main ]
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-      # 步骤1：拉取代码
+      # 拉取代码
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 步骤2：安装PHP环境
+      # 安装PHP环境
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'  # 匹配项目所需PHP版本
-          extensions: mbstring, xml  # 按需添加扩展（如处理XML/Markdown）
-          tools: composer  # 如需依赖管理，可启用composer
+          php-version: '8.2'
+          extensions: mbstring, xml
 
-      # 步骤3：安装项目依赖（如需要）
+      # 安装依赖
       - name: Install dependencies
-        run: composer install --no-dev  # 仅安装生产环境依赖
-        if: hashFiles('composer.json') != ''  # 仅当composer.json存在时执行
+        run: composer install --no-dev
+        if: hashFiles('composer.json') != ''
 
-      # 步骤4：执行PHP脚本生成静态文件
+      # 生成静态文件
       - name: Generate static files
-        run: php generate.php  # 运行静态化脚本
-        env:
-          # 如需环境变量（如API密钥），可在此定义
-          API_KEY: ${{ secrets.API_KEY }}
+        run: php generate.php
 
-      # 步骤5：部署到GitHub Pages      - name: Upload static files
+      # 上传静态文件产物
+      - name: Upload static files
         uses: actions/upload-artifact@v3
         with:
           name: static-files
-          path: ./public  # 静态文件输出目录
-
-    
+          path: ./public
