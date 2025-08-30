@@ -1,36 +1,40 @@
-name: Build and Deploy PHP
-
+name: Build PHP to Static Files
 
 on:
   push:
-    branches:
-      - master
-
+    branches: [ main ]  # 推送到main分支时触发
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-
-
     steps:
-    - uses: actions/checkout@v2
+      # 步骤1：拉取代码
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      # 步骤2：安装PHP环境
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'  # 匹配项目所需PHP版本
+          extensions: mbstring, xml  # 按需添加扩展（如处理XML/Markdown）
+          tools: composer  # 如需依赖管理，可启用composer
 
-    - name: Setup PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '7.4' # 指定 PHP 版本
+      # 步骤3：安装项目依赖（如需要）
+      - name: Install dependencies
+        run: composer install --no-dev  # 仅安装生产环境依赖
+        if: hashFiles('composer.json') != ''  # 仅当composer.json存在时执行
 
+      # 步骤4：执行PHP脚本生成静态文件
+      - name: Generate static files
+        run: php generate.php  # 运行静态化脚本
+        env:
+          # 如需环境变量（如API密钥），可在此定义
+          API_KEY: ${{ secrets.API_KEY }}
 
-    - name: Execute commands on remote server
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        port: ${{ secrets.PORT }}
-        script: |
-          # 停止旧的 PHP 服务
-          sudo service php7.4-fpm stop
-          # 启动新的 PHP 服务
-          sudo service php7.4-fpm start
+      # 步骤5：部署到GitHub Pages      - name: Upload static files
+        uses: actions/upload-artifact@v3
+        with:
+          name: static-files
+          path: ./public  # 静态文件输出目录
+    
