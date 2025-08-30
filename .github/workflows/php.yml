@@ -1,4 +1,4 @@
-name: PHP Project Workflow
+name: PHP.yml
 
 on:
   push:
@@ -8,29 +8,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 拉取代码
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 安装PHP环境
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
           extensions: mbstring, xml
 
-      # 安装依赖
       - name: Install dependencies
         run: composer install --no-dev
         if: hashFiles('composer.json') != ''
 
-      # 生成静态文件
       - name: Generate static files
         run: php generate.php
 
-      # 上传静态文件产物
+      # 升级到v4版本
       - name: Upload static files
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 这里从v3升级到v4
         with:
           name: static-files
           path: ./public
