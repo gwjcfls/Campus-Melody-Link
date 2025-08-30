@@ -14,9 +14,9 @@
 
 <div align="center">
 
-[![星标](https://img.shields.io/github/stars/gwjcfls/Campus-Melody-Link?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Class-Widgets/Class-Widgets)
-[![当前版本](https://img.shields.io/github/v/release/gwjcfls/Campus-Melody-Link?style=for-the-badge&color=purple&label=%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC)](https://github.com/Class-Widgets/Class-Widgets/releases/latest)
-[![开源许可](https://img.shields.io/badge/license-GPLv3-blue.svg?label=%E5%BC%80%E6%BA%90%E8%AE%B8%E5%8F%AF%E8%AF%81&style=for-the-badge)](https://github.com/Class-Widgets/Class-Widgets?tab=GPL-3.0-1-ov-file)
+[![星标](https://img.shields.io/github/stars/gwjcfls/Campus-Melody-Link?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/gwjcfls/Campus-Melody-Link)
+[![当前版本](https://img.shields.io/github/v/release/gwjcfls/Campus-Melody-Link?style=for-the-badge&color=purple&label=%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC)](https://github.com/gwjcfls/Campus-Melody-Link/releases/latest)
+[![开源许可](https://img.shields.io/badge/license-GPLv3-blue.svg?label=%E5%BC%80%E6%BA%90%E8%AE%B8%E5%8F%AF%E8%AF%81&style=for-the-badge)](https://github.com/gwjcfls/Campus-Melody-Link?tab=GPL-3.0-1-ov-file)
 
 ![Alt](https://repobeats.axiom.co/api/embed/c8dd958b317588bfefe5a7b8d9857b341673ca5b.svg "Repobeats analytics image")
 
