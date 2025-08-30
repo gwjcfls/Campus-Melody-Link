@@ -23,7 +23,7 @@ require_once 'db_connect.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.5">
-    <title>广播站点歌系统 - 管理后台</title>
+    <title>星声校园点歌台 - 管理后台</title>
     <!-- <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="css/font-awesome.min.css"> -->
 
@@ -155,7 +155,7 @@ require_once 'db_connect.php';
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-music text-primary text-2xl"></i>
-                <h1 class="text-xl font-bold text-dark">广播站点歌系统 - 管理后台</h1>
+                <h1 class="text-xl font-bold text-dark">星声校园点歌台 - 管理后台</h1>
             </div>
             <div class="flex items-center space-x-4">
                 <span class="text-gray-600">欢迎，<?php echo $_SESSION['admin_username'] ?>（<?php echo $admin_role === 'super_admin' ? '超级管理员' : '管理员' ?>）</span>

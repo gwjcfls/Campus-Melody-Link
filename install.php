@@ -282,7 +282,7 @@ PHP;
             if (!$writeOk) {
                 // 若写入失败，提供手动创建内容
                 $manualDbConnect = $dbConnectCode;
-                throw new Exception('写入 db_connect.php 失败（请检查目录/文件权限或用下方内容手动创建）');
+                throw new Exception('写入 db_connect.php 失败（请检查目录/文件权限或用下方内容手动替换），手动替换后刷新本页面继续完成后续操作');
             }
             @chmod($dbConnectFile, 0640);
             $infos[] = 'db_connect.php 已' . (is_file($dbConnectFile) ? '覆盖' : '创建') . ($backupMade ? '（原文件已备份）' : '');

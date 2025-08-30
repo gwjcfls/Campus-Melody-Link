@@ -8,16 +8,17 @@
   Campus Melody Link
 </h3>
 <p align="center">
- 全新校园点歌台——“星声” 既指歌声如星光般点亮校园，也暗含 “心声”，借歌曲传递情感的心意
+ 全新响应时布局的校园点歌台——“星声” 既指歌声如星光般点亮校园，也暗含 “心声”，借歌曲传递情感的心意
  “Melody Link” 寓意用旋律连接校园里的人和事
 </p>
 
 <div align="center">
 
-[![星标](https://img.shields.io/github/stars/gwjcfls/gwjcfls.github.io?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Class-Widgets/Class-Widgets)
-[![当前版本](https://img.shields.io/github/v/release/Class-Widgets/Class-Widgets?style=for-the-badge&color=purple&label=%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC)](https://github.com/Class-Widgets/Class-Widgets/releases/latest)
+[![星标](https://img.shields.io/github/stars/gwjcfls/Campus-Melody-Link?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Class-Widgets/Class-Widgets)
+[![当前版本](https://img.shields.io/github/v/release/gwjcfls/Campus-Melody-Link?style=for-the-badge&color=purple&label=%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC)](https://github.com/Class-Widgets/Class-Widgets/releases/latest)
 [![开源许可](https://img.shields.io/badge/license-GPLv3-blue.svg?label=%E5%BC%80%E6%BA%90%E8%AE%B8%E5%8F%AF%E8%AF%81&style=for-the-badge)](https://github.com/Class-Widgets/Class-Widgets?tab=GPL-3.0-1-ov-file)
-[![下载量](https://img.shields.io/github/downloads/Class-Widgets/Class-Widgets/total.svg?label=%E4%B8%8B%E8%BD%BD%E9%87%8F&color=green&style=for-the-badge)](https://github.com/Class-Widgets/Class-Widgets)
+
+![Alt](https://repobeats.axiom.co/api/embed/c8dd958b317588bfefe5a7b8d9857b341673ca5b.svg "Repobeats analytics image")
 
 </div>
 
@@ -49,13 +50,17 @@
 
 ## 项目截图
 
-![截图1](img/screenshot/截图%202025-08-29%2011-50-30.png)
+项目前台（开放点歌投票状态）
+![截图1](img/screenshot/1.png)
 
-![截图2](img/screenshot/截图%202025-08-29%2011-44-51.png)
+项目前台（关闭点歌投票状态）
+![截图2](img/screenshot/4.png)
 
-![截图3](img/screenshot/截图%202025-08-29%2011-44-36.png)
+项目后台（歌曲管理）
+![截图3](img/screenshot/2.png)
 
-![截图4](img/screenshot/截图%202025-08-29%2011-47-38.png)
+项目后台（时间管理）
+![截图4](img/screenshot/3.png)
 
 [查看更多截图 →](img/screenshot/README.md)
 
@@ -77,7 +82,7 @@
 
 ## 安装与部署
 
-快速开始：install.php 一键安装（推荐）
+#### 快速开始：一键安装（推荐）
 
 - 将项目上传/放置到站点目录后，直接访问浏览器地址：/install.php
 - 填写数据库主机/库名/用户/密码，可选：
@@ -93,11 +98,15 @@
    - 触发 time_config.php 的 schema 保障逻辑（确保 reset_seq/combined_limit 等字段就绪）
    - 构建 trie_cache.php（若勾选）
 
+[点击查看使用方法](#使用方法快速上手)
+
 安全提示：
 - 生产环境务必使用 HTTPS；db_connect.php 建议权限 600/640。
 - 安装完成后删除 install.php；如需再次安装请先删除 install.lock。
 
 如不使用安装向导，也可以按下述“手动安装”步骤执行。
+
+#### 手动安装
 
 1) 环境要求
 - PHP 7.2+（推荐 7.4/8.x），启用 PDO MySQL
@@ -147,7 +156,44 @@ VALUES ('admin', '上一步生成的哈希', 'super_admin');
 - 前台：`index.php`
 - 后台：`admin.php`（点击“广播站”文字 5 次触发首页内置登录弹窗，或直接访问 admin.php）
 
-## 数据库模型说明
+## 使用方法（快速上手）
+
+### 普通用户 — 点歌与投票（5 步）
+1. 打开网站首页：访问 `index.php`。
+2. 搜索并选择歌曲：在“歌曲名称”输入框输入关键词，点击放大镜按钮打开“搜索歌曲”弹窗，选择合适结果（前端会把 `song` 和 `singer` 填入表单）。
+3. 填写信息并提交：填写你的姓名、班级与留言，点击“提交点歌”。若当前不在开放时段会收到提示，或次数已满会被阻止。
+4. 投票：在待播清单中点击心形按钮为歌曲投票；已投过可再次取消（前端会更新本地 votedSongs）。
+5. 查看播放历史：播放后歌曲会出现在“播放历史”列表，管理员也会标记已播放状态。
+
+### 管理员 — 部署与常用操作（快速指南）
+1. 创建管理员账户：在数据库中创建 `admins` 表并插入管理员记录（使用 PHP CLI 生成密码哈希）：
+
+```bash
+php -r "echo password_hash('你的强密码', PASSWORD_DEFAULT), PHP_EOL;"
+```
+
+2. 登录后台：连续点击五次点歌站文本，使用管理员账号登录。
+3. 常用管理操作：
+   - 歌曲管理：编辑/删除/标记已播/批量操作。
+   - 公告与规则：在后台更新公告与点歌规则（立即生效，前台可见）。
+   - 时间与配额：在“时间管理”中切换手动/自动模式、调整 request_limit/vote_limit 或启用 combined_limit。
+4. 强制刷新用户次数：后台执行“强制刷新”，会使 `reset_seq` 自增，前端检测到后会清空本地计数并提示用户。
+5. 敏感词管理：编辑 `badwords.php` 后运行 `php build.php` 生成/更新 `trie_cache.php`，以便提交点歌时生效。
+
+常用命令示例：
+
+```bash
+# 生成敏感词 trie
+php build.php
+
+# 检查当前开窗/限额状态
+curl "http://your.site/time_config.php?action=status"
+```
+
+说明：后台所有关键操作会写入 `operation_logs`，便于审计与排查问题。
+
+## 以下是技术文档
+### 数据库模型说明
 
 初始化脚本 `database_setup.sql` 含以下核心表：
 
@@ -174,7 +220,7 @@ time_rules 字段要点：
 
 注意：`time_config.php` 启动时会自动执行 schema 兜底迁移（添加/修正 combined_limit、reset_seq、id 自增等），确保线上升级安全。
 
-## 自动时间规则语义（核心）
+### 自动时间规则语义（核心）
 
 时间规则计算由 `time_config.php` 暴露的 `compute_status()` 驱动，纯函数实现见 `time_lib.php`。三类规则均支持“跨天/跨周”、重叠聚合：
 
@@ -207,7 +253,7 @@ time_rules 字段要点：
 }
 ```
 
-## 前端“本地次数限制”与 reset_seq
+### 前端“本地次数限制”与 reset_seq
 
 前端在 `index.php` 中维护本地计数（localStorage）：
 
@@ -226,7 +272,7 @@ time_rules 字段要点：
 
 注意：页面默认每 30 秒刷新一次状态；另外在点歌/投票等交互后也会刷新 UI。
 
-## 后台使用与权限
+### 后台使用与权限
 
 - 角色
    - super_admin：除通用操作外，还可编辑歌曲内容与删除歌曲
@@ -243,14 +289,14 @@ time_rules 字段要点：
 
 所有后台关键动作均调用 `log_operation()` 写入 `operation_logs`（见 `db_connect.php`）。
 
-## 敏感词检测
+### 敏感词检测
 
 - 词库：`badwords.php`（返回字符串数组）
 - 生成：运行 `build.php` 生成 `trie_cache.php`（纯 PHP 数组，线上直接 require 使用）
 - 检测点：`submit_request.php` 在插入数据库前对留言 `message` 执行 Trie 扫描，命中则返回错误并拒绝提交
 - 说明：Trie 为“多字节友好”，逐字符（UTF-8）前缀匹配，匹配到 `end` 即判定包含敏感词
 
-## 服务端 API（主要）
+### 服务端 API（主要）
 
 时间/限额 API：`time_config.php`
 
@@ -278,7 +324,7 @@ time_rules 字段要点：
 
 所有后台操作均返回 JSON：`{ success: boolean, message?: string, ... }`
 
-## 搜索歌曲 API 返回数据要求
+### 搜索歌曲 API 返回数据要求
 
 前台首页通过浏览器直接请求第三方歌曲搜索接口（见 `index.php`），并将返回结果展示在“搜索歌曲”弹窗中。因此，该接口需满足以下返回格式与行为约定：
 
@@ -331,7 +377,7 @@ time_rules 字段要点：
 
 注意：前端不会使用音频播放 URL，仅用于辅助填写“歌曲名称/歌手”。如需扩展更多字段（如专辑名、时长），可在保持上述字段的前提下追加自定义字段。
 
-## 安全加固
+### 安全加固
 
 - Session：
    - `cookie_secure=On`（需 HTTPS）、`httponly=On`、`samesite=Strict`、`gc_maxlifetime=3600`、每次请求刷新 Session ID
@@ -345,7 +391,7 @@ time_rules 字段要点：
 
 开发环境提示：若未启用 HTTPS，`cookie_secure=On` 可能导致登录态不生效。可在本地开发期临时关闭，线上务必开启。
 
-## 测试与验证
+### 测试与验证
 
 目录：`tests/`
 
@@ -404,7 +450,8 @@ php tests/hack_time_cases.php
 
 - [ ] 增加分页与导出 CSV（songs/logs）
 - [ ] 添加后台管理员账号管理，可在后台新增管理员账号
-
+- [ ] 优化代码缩进，格式化代码
+- [ ] 优化后台手机端UI
 
 ## 协议
 
@@ -414,8 +461,22 @@ Copyright © 2025 gwjcfls.
 
 ## 致谢
 
-感谢dyr同学的资金支持
+感谢dyr同学的资金支持，感谢广大同学对本项目提出的改进建议，没有你们就没有这个项目的完善。
 
 感谢各大AI（按使用量排序）：Chatgpt-5、Chatgpt-4 mini、Chatgpt-4、deepseek v3、Gemini 2.5 pro、Claude Sonnet 4、Grok Code Fast 1
 
 感谢[落月api](https://doc.vkeys.cn/api-doc/)提供的歌曲搜索接口
+
+
+## 支持一下
+
+欢迎提出issue，周末会回复
+
+如果喜欢本项目，点亮star！谢谢您的支持！
+
+#
+
+##### 注：
+   - 本项目不需要登陆即可使用，不可避免的本地存储数据，注意可能会被用户篡改。学校的解决方案是强制只能使用微信打开，这样就不能F12编辑localstorge了。
+   - 项目演示网站(radio.gwjcfls.top)已改为学校名称。
+

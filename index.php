@@ -120,7 +120,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>语之声·校园点歌站</title>
+    <title>星声·校园点歌站</title>
     
     <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <!-- <link rel="stylesheet" href="css/tailwind.css"> -->
@@ -193,7 +193,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
             <div class="flex items-center space-x-3">
                 <i class="fa fa-music text-primary text-2xl"></i>
                 <h1 class="text-xl md:text-2xl font-display font-bold text-dark">
-                    <span class="font-extrabold">语之声</span><span id="radio-station-text" class="text-primary opacity-80">点歌站</span>
+                    <span class="font-extrabold">星声</span><span id="radio-station-text" class="text-primary opacity-80">点歌站</span>
                 </h1>
             </div>
             <div class="flex items-center space-x-2 md:space-x-4">
@@ -484,7 +484,7 @@ if (isset($_GET['vote']) && is_numeric($_GET['vote']) && isset($_GET['action']))
     
     <!-- 页脚 -->
     <footer class="text-dark/60 py-8 mt-12 text-center text-sm">
-        <p>© 2025 语之声点歌站 · Made with <i class="fa fa-heart text-secondary"></i>
+        <p>© 2025 星声校园点歌站 · Made with <i class="fa fa-heart text-secondary"></i>
             <a href="https://github.com/gwjcfls" target="_blank" rel="noopener noreferrer" class="text-primary underline hover:no-underline">@gwjcfls</a>
         </p>
     </footer>
